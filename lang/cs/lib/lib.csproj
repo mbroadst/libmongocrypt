@@ -1,0 +1,47 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard1.6</TargetFramework>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <AssemblyName>MongoDB.Crypt</AssemblyName>
+    <AssemblyTitle>MongoDB.Crypt</AssemblyTitle>
+    <Product>MongoDB.Crypt</Product>
+    <Company>MongoDB Inc.</Company>
+    <Copyright>Copyright © 2019-present MongoDB Inc.</Copyright>
+    <Description>Official MongoDB supported driver for MongoDB.  See http://www.mongodb.org/display/DOCS/CSharp+Language+Center for more details.</Description>
+    <Authors>markbenvenuto</Authors>
+    <PackageIconUrl>http://jobs.mongodb.org/files/logos/889002/889002.png</PackageIconUrl>
+    <!-- <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance> -->
+    <PackageDescription>Official .NET driver for MongoDB.</PackageDescription>
+    <PackageProjectUrl>http://www.mongodb.org/display/DOCS/CSharp+Language+Center</PackageProjectUrl>
+    <!-- <PackageLicenseFile>License.txt</PackageLicenseFile> -->
+    <PackageTags>mongodb;mongo;nosql</PackageTags>
+    <PackageLanguage>en-US</PackageLanguage>
+    <IncludeSymbols>true</IncludeSymbols>
+
+  </PropertyGroup>
+
+  <ItemGroup>
+
+    <Content Include="../../../debug/libmongocrypt.so" Condition="'$(Configuration)'=='Debug' And Exists('../../../debug/libmongocrypt.so')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <PackagePath>native/linux/libmongocrypt.so</PackagePath>
+      <Pack>true</Pack>
+    </Content>
+
+    <Content Include="../../../debug/libmongocrypt.dylib" Condition="'$(Configuration)'=='Debug' And Exists('../../../debug/libmongocrypt.dylib')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <PackagePath>native/osx/libmongocrypt.dylib</PackagePath>
+      <Pack>true</Pack>
+    </Content>
+
+    <Content Include="../../../debug/libmongocrypt.dll" Condition="'$(Configuration)'=='Debug' And Exists('../../../debug/libmongocrypt.dll')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <PackagePath>native/windows/libmongocrypt.dll</PackagePath>
+      <Pack>true</Pack>
+    </Content>
+  </ItemGroup>
+
+</Project>
