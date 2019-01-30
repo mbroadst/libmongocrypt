@@ -9,7 +9,7 @@ namespace console
         {
             Console.WriteLine("Hello World!");
 
-             Console.WriteLine("Version: " + Library.GetVersion());
+             Console.WriteLine("Version: " + Library.Version());
         }
     }
 }

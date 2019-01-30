@@ -29,10 +29,12 @@ namespace MongoDB.MongoCrypt
             mongocrypt_version = loader.getFunction<Delegates.mongocrypt_version>("mongocrypt_version");
         }
 
-        public static string GetVersion()
+        public static string Version
         {
-            IntPtr p = mongocrypt_version();
-            return Marshal.PtrToStringAnsi(p);
+            get {
+                IntPtr p = mongocrypt_version();
+                return Marshal.PtrToStringAnsi(p);
+            }
         }
 
         public static readonly Delegates.mongocrypt_init mongocrypt_init;
