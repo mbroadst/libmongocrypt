@@ -45,20 +45,23 @@ mongocrypt_version (void);
 typedef struct _mongocrypt_binary_t mongocrypt_binary_t;
 
 
+/**
+ * Create a new non-owning view of a buffer (data + length).
+ * 
+ * @returns A new mongocrypt_binary_t.
+ */
 MONGOCRYPT_EXPORT
 mongocrypt_binary_t *
 mongocrypt_binary_new (void);
 
 /**
- * Create a new non-owning view of a buffer (data + length). Free the view with
- * mongocrypt_binary_destroy.
+ * Create a new non-owning view of a buffer (data + length).
  *
  * @param data A pointer to an array of bytes. This is not copied. @data must
  * outlive the binary object.
  * @param len The length of the @data array.
  *
- * @returns A new mongocrypt_binary_t that must later be destroyed with
- * mongocrypt_binary_destroy.
+ * @returns A new mongocrypt_binary_t.
  */
 MONGOCRYPT_EXPORT
 mongocrypt_binary_t *
@@ -177,6 +180,9 @@ typedef enum {
 } mongocrypt_log_level_t;
 
 
+/**
+ * The log callback function.
+ */
 typedef void (*mongocrypt_log_fn_t) (mongocrypt_log_level_t level,
                                      const char *message,
                                      void *ctx);
@@ -199,14 +205,6 @@ typedef struct _mongocrypt_t mongocrypt_t;
 
 /**
  * Create a new mongocrypt_t handle.
- *
- * @param opts A pointer to a `mongocrypt_opts_t`. Possible options:
- * - MONGOCRYPT_AWS_REGION Accepts a char*, e.g. "us-east-1"
- * - MONGOCRYPT_AWS_SECRET_ACCESS_KEY Accepts a  char*
- * - MONGOCRYPT_AWS_ACCESS_KEY_ID Accepts a char*
- * - MONGOCRYPT_LOG_FN An optional log handler. Accepts a mongocrypt_log_fn_t
- * - MONGOCRYPT_LOG_CTX An optional void* context that is passed to the
- * MONGOCRYPT_LOG_FN. Accepts a void*.
  *
  * @returns A new mongocrypt_t handle.
  */
@@ -268,11 +266,18 @@ mongocrypt_ctx_state_t
 mongocrypt_ctx_state (mongocrypt_ctx_t *ctx);
 
 
+/**
+ * Get the BSON representing a command that should be sent to mongod/mongocryptd. Use your driver's
+ * runCommand helper.
+ */
 MONGOCRYPT_EXPORT
 bool
 mongocrypt_ctx_mongo_cmd (mongocrypt_ctx_t *ctx, mongocrypt_binary_t *out, const char** on_db);
 
 
+/**
+ * Feed back the reply from runCommand.
+ */
 MONGOCRYPT_EXPORT
 bool
 mongocrypt_ctx_mongo_reply (mongocrypt_ctx_t *ctx, mongocrypt_binary_t *reply);
@@ -281,14 +286,13 @@ mongocrypt_ctx_mongo_reply (mongocrypt_ctx_t *ctx, mongocrypt_binary_t *reply);
 typedef struct _mongocrypt_kms_ctx_t mongocrypt_kms_ctx_t;
 
 
+/**
+ * Get the next KMS handle. Driver may use grab multiple concurrent handles to
+ * fan-out KMS HTTP messages.
+ */
 MONGOCRYPT_EXPORT
 mongocrypt_kms_ctx_t *
 mongocrypt_ctx_next_kms_ctx (mongocrypt_ctx_t *ctx, mongocrypt_binary_t *msg);
-
-
-MONGOCRYPT_EXPORT
-void
-mongocrypt_ctx_destroy (mongocrypt_ctx_t *ctx);
 
 
 MONGOCRYPT_EXPORT
@@ -315,6 +319,11 @@ mongocrypt_ctx_kms_ctx_done (mongocrypt_ctx_t *ctx, mongocrypt_kms_ctx_t *kms);
 MONGOCRYPT_EXPORT
 bool
 mongocrypt_ctx_finalize (mongocrypt_ctx_t *ctx, mongocrypt_binary_t* out);
+
+
+MONGOCRYPT_EXPORT
+void
+mongocrypt_ctx_destroy (mongocrypt_ctx_t *ctx);
 
 
 #endif /* MONGOCRYPT_H */

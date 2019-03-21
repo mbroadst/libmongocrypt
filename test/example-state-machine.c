@@ -53,7 +53,7 @@ _read_http (const char *path, uint32_t *len)
    int filesize = 0;
    char storage[512];
    int i;
-   uint8_t* final;
+   uint8_t *final;
 
    fd = open (path, O_RDONLY);
    while ((n_read = read (fd, storage, sizeof (storage))) > 0) {
@@ -116,84 +116,85 @@ main ()
    const char *on_db;
    mongocrypt_t *crypt;
    mongocrypt_ctx_t *ctx;
-   mongocrypt_binary_t *bin;
-   uint8_t *cmd, *mongocryptd_reply, *list_collections_reply, *key_reply, *kms_reply;
-   uint32_t cmd_len, mongocryptd_reply_len, list_collections_reply_len,
-      key_reply_len, kms_reply_len;
+   mongocrypt_binary_t *input, *output;
+   uint8_t *input_data[4], *cmd;
+   uint32_t input_len[4], cmd_len;
+   int input_idx;
    mongocrypt_kms_ctx_t *kms;
+   mongocrypt_ctx_state_t state;
+   mongocrypt_status_t *status;
+   bool done = false;
 
-   list_collections_reply =
-      _read_json ("./test/example/list-collections-reply.json",
-                  &list_collections_reply_len);
    cmd = _read_json ("./test/example/command.json", &cmd_len);
-   mongocryptd_reply = _read_json ("./test/example/mongocryptd-reply.json",
-                                   &mongocryptd_reply_len);
-   key_reply = _read_json ("./test/example/key-reply.json", &key_reply_len);
-   kms_reply = _read_http ("./test/example/kms-reply.txt", &kms_reply_len);
+   input_data[0] =
+      _read_json ("./test/example/list-collections-reply.json", &input_len[0]);
+   input_data[1] =
+      _read_json ("./test/example/mongocryptd-reply.json", &input_len[1]);
+   input_data[2] = _read_json ("./test/example/key-reply.json", &input_len[2]);
+   input_data[3] = _read_http ("./test/example/kms-reply.txt", &input_len[3]);
 
    crypt = mongocrypt_new (NULL);
    ctx = mongocrypt_ctx_new (crypt);
 
-   bin = mongocrypt_binary_new_from_data (cmd, cmd_len);
-   mongocrypt_ctx_encrypt_init (ctx, "test.test", 9, bin);
+   input = mongocrypt_binary_new_from_data (cmd, cmd_len);
+   mongocrypt_ctx_encrypt_init (ctx, "test.test", 9, input);
+   mongocrypt_binary_destroy (input);
+   status = mongocrypt_status_new ();
+   input_idx = 0;
+   state = mongocrypt_ctx_state (ctx);
 
-   assert (mongocrypt_ctx_state (ctx) == MONGOCRYPT_CTX_NEED_MONGO);
-   mongocrypt_ctx_mongo_cmd (ctx, bin, &on_db);
-   printf ("libmongocrypt wants to send the following to mongod (on %s):\n",
-           on_db);
-   _print_binary_as_bson (bin);
-   mongocrypt_binary_destroy (bin);
-   bin = mongocrypt_binary_new_from_data (list_collections_reply,
-                                          list_collections_reply_len);
-   printf ("mocking reply from file:\n");
-   _print_binary_as_bson (bin);
-   mongocrypt_ctx_mongo_reply (ctx, bin);
+   while (!done) {
+      input = mongocrypt_binary_new_from_data (input_data[input_idx],
+                                               input_len[input_idx]);
+      switch (state) {
+      case MONGOCRYPT_CTX_NEED_MONGO:
+      case MONGOCRYPT_CTX_NEED_MONGOCRYPTD:
+         mongocrypt_ctx_mongo_cmd (ctx, output, &on_db);
+         printf ("sending the following to mongo%s (on %s):\n",
+                 state == MONGOCRYPT_CTX_NEED_MONGOCRYPTD ? "cryptd" : "",
+                 on_db);
+         _print_binary_as_bson (output);
+         printf ("mocking reply from file:\n");
+         _print_binary_as_bson (input);
+         mongocrypt_ctx_mongo_reply (ctx, input);
+         break;
+      case MONGOCRYPT_CTX_NEED_KMS:
+         kms = mongocrypt_ctx_next_kms_ctx (ctx, output);
+         printf ("\nlibmongocrypt wants to send the following to kms:\n");
+         _print_binary_as_text (output);
+         printf ("mocking reply from file\n");
+         mongocrypt_kms_ctx_feed (kms, input);
+         assert (mongocrypt_kms_ctx_bytes_needed (kms) == 0);
+         mongocrypt_ctx_kms_ctx_done (ctx, kms);
+         break;
+      case MONGOCRYPT_CTX_READY:
+         mongocrypt_ctx_finalize (ctx, output);
+         printf ("\nencrypted command is:");
+         _print_binary_as_bson (output);
+         break;
+      case MONGOCRYPT_CTX_DONE:
+         done = true;
+         break;
+      case MONGOCRYPT_CTX_NOTHING_TO_DO:
+         printf ("no encryption was needed\n");
+         done = true;
+         break;
+      case MONGOCRYPT_CTX_ERROR:
+         mongocrypt_ctx_status (ctx, status);
+         printf ("got error: %s\n", mongocrypt_status_message (status));
+         done = true;
+         break;
+      }
+      input_idx++;
+      mongocrypt_binary_destroy (input);
+      state = mongocrypt_ctx_state (ctx);
+   }
 
-   assert (mongocrypt_ctx_state (ctx) == MONGOCRYPT_CTX_NEED_MONGOCRYPTD);
-   mongocrypt_ctx_mongo_cmd (ctx, bin, &on_db);
-   printf (
-      "\nlibmongocrypt wants to send the following to mongocryptd (on %s):\n",
-      on_db);
-   _print_binary_as_bson (bin);
-   mongocrypt_binary_destroy (bin);
-   bin = mongocrypt_binary_new_from_data (mongocryptd_reply,
-                                          mongocryptd_reply_len);
-   _print_binary_as_bson (bin);
-   printf ("mocking reply from file\n");
-   mongocrypt_ctx_mongo_reply (ctx, bin);
-
-   assert (mongocrypt_ctx_state (ctx) == MONGOCRYPT_CTX_NEED_MONGO);
-   mongocrypt_ctx_mongo_cmd (ctx, bin, &on_db);
-   printf ("\nlibmongocrypt wants to send the following to mongod (on %s):\n",
-           on_db);
-   _print_binary_as_bson (bin);
-   mongocrypt_binary_destroy (bin);
-   bin = mongocrypt_binary_new_from_data (key_reply, key_reply_len);
-   _print_binary_as_bson (bin);
-   printf ("mocking reply from file\n");
-   mongocrypt_ctx_mongo_reply (ctx, bin);
-
-   assert (mongocrypt_ctx_state (ctx) == MONGOCRYPT_CTX_NEED_KMS);
-   kms = mongocrypt_ctx_next_kms_ctx (ctx, bin);
-   printf ("\nlibmongocrypt wants to send the following to kms:\n");
-   _print_binary_as_text (bin);
-   printf ("mocking reply from file\n");
-   bin = mongocrypt_binary_new_from_data (kms_reply, kms_reply_len);
-   mongocrypt_kms_ctx_feed (kms, bin);
-   assert (mongocrypt_kms_ctx_bytes_needed (kms) == 0);
-   mongocrypt_ctx_kms_ctx_done (ctx, kms);
-
-   assert (mongocrypt_ctx_state (ctx) == MONGOCRYPT_CTX_READY);
-   mongocrypt_ctx_finalize (ctx, bin);
-   printf("\nencrypted command is:");
-   _print_binary_as_bson (bin);
-   
-   bson_free (list_collections_reply);
-   bson_free (cmd);
-   bson_free (mongocryptd_reply);
-   bson_free (list_collections_reply);
-   bson_free (key_reply);
-   bson_free (kms_reply);
-   
+   for (input_idx = 0; input_idx < sizeof (input_data) / sizeof (*input_data);
+        input_idx++) {
+      bson_free (input_data[input_idx]);
+   }
+   mongocrypt_status_destroy (status);
+   mongocrypt_ctx_destroy (ctx);
    mongocrypt_destroy (crypt);
 }

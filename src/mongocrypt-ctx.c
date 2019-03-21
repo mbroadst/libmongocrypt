@@ -99,6 +99,7 @@ mongocrypt_ctx_new (mongocrypt_t *crypt)
    ctx = bson_malloc0 (ctx_size);
    ctx->crypt = crypt;
    _mongocrypt_key_broker_init (&ctx->kb);
+   ctx->status = mongocrypt_status_new ();
    return ctx;
 }
 
@@ -412,7 +413,8 @@ mongocrypt_ctx_kms_ctx_done (mongocrypt_ctx_t *ctx, mongocrypt_kms_ctx_t *kms)
 {
    /* TODO: check if this is the last remaining open kms request */
    ctx->state = MONGOCRYPT_CTX_READY;
-   _mongocrypt_key_broker_add_decrypted_key (&ctx->kb, (mongocrypt_key_decryptor_t*)kms);
+   _mongocrypt_key_broker_add_decrypted_key (
+      &ctx->kb, (mongocrypt_key_decryptor_t *) kms);
    return true;
 }
 
@@ -520,8 +522,7 @@ _replace_marking_with_ciphertext (void *ctx,
    BSON_ASSERT (bytes_written == ciphertext.data.len);
 
    memcpy (&ciphertext.key_id, &marking.key_id, sizeof (_mongocrypt_buffer_t));
-   _serialize_ciphertext (&ciphertext,
-                                               &serialized_ciphertext);
+   _serialize_ciphertext (&ciphertext, &serialized_ciphertext);
 
    /* ownership of serialized_ciphertext is transferred to caller. */
    out->value_type = BSON_TYPE_BINARY;
@@ -553,8 +554,12 @@ _mongocrypt_ctx_encrypt_finalize (mongocrypt_ctx_t *ctx,
    _mongocrypt_buffer_to_bson (&ectx->marked_cmd, &as_bson);
    bson_iter_init (&iter, &as_bson);
    bson_init (&converted);
-   if (!_mongocrypt_transform_binary_in_bson (
-          _replace_marking_with_ciphertext, &ctx->kb, 0, &iter, &converted, status)) {
+   if (!_mongocrypt_transform_binary_in_bson (_replace_marking_with_ciphertext,
+                                              &ctx->kb,
+                                              0,
+                                              &iter,
+                                              &converted,
+                                              status)) {
       ctx->state = MONGOCRYPT_CTX_ERROR;
       return false;
    }
@@ -591,4 +596,23 @@ mongocrypt_ctx_encrypt_init (mongocrypt_ctx_t *ctx,
    ctx->vtable.mongo_reply = _mongocrypt_ctx_encrypt_mongo_reply;
    ctx->vtable.finalize = _mongocrypt_ctx_encrypt_finalize;
    return true;
+}
+
+
+bool
+mongocrypt_ctx_status (mongocrypt_ctx_t *ctx, mongocrypt_status_t *out)
+{
+   if (!mongocrypt_status_ok (ctx->status)) {
+      mongocrypt_status_copy_to (ctx->status, out);
+      return false;
+   }
+   mongocrypt_status_reset (out);
+   return true;
+}
+
+
+void
+mongocrypt_ctx_destroy (mongocrypt_ctx_t *ctx)
+{
+   return;
 }
