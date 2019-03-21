@@ -19,7 +19,7 @@
 
 #include "kms_message/kms_b64.h"
 
-#include "mongocrypt-key-decryptor.h"
+#include "mongocrypt.h"
 #include "mongocrypt-key-broker-private.h"
 #include "mongocrypt-log-private.h"
 #include "mongocrypt-private.h"
@@ -282,6 +282,40 @@ mongocrypt_key_broker_get_key_filter (mongocrypt_key_broker_t *kb)
    kb->filter.data = bson_destroy_with_steal (&filter, true, &kb->filter.len);
 
    return _mongocrypt_buffer_to_binary(&kb->filter);
+}
+
+bool
+_mongocrypt_key_broker_append_filter (mongocrypt_key_broker_t *kb, bson_t* out)
+{
+   _mongocrypt_key_broker_entry_t *iter;
+   int i = 0;
+   bson_t filter, _id, _id_in;
+
+   BSON_ASSERT (kb);
+
+   bson_append_document_begin (out, "filter", -1, &filter);
+   bson_append_document_begin (&filter, "_id", 3, &_id);
+   bson_append_array_begin (&_id, "$in", 3, &_id_in);
+
+   for (iter = kb->kb_entry; iter != NULL; iter = iter->next) {
+      char *key_str;
+
+      if (iter->state != KEY_EMPTY) {
+         continue;
+      }
+
+      key_str = bson_strdup_printf ("%d", i++);
+      _mongocrypt_buffer_append (&iter->key_id, &_id_in, key_str, strlen (key_str));
+
+      bson_free (key_str);
+   }
+
+   bson_append_array_end (&_id, &_id_in);
+   bson_append_document_end (&filter, &_id);
+
+
+   bson_append_document_end (out, &filter);
+   return true;
 }
 
 bool

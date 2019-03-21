@@ -18,7 +18,6 @@
 
 #include "mongocrypt-binary-private.h"
 #include "mongocrypt-buffer-private.h"
-#include "mongocrypt-key-decryptor.h"
 #include "mongocrypt-key-decryptor-private.h"
 
 void

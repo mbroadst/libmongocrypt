@@ -19,7 +19,7 @@
 /* Utilities for cross-platform and C89 compatibility */
 
 /* Copied from bson-compat.h from the C driver. */
-
+#include <stdint.h>
 #ifdef BSON_HAVE_STDBOOL_H
 #include <stdbool.h>
 #elif !defined(__bool_true_false_are_defined)

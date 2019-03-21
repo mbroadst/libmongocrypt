@@ -1,0 +1,40 @@
+{
+    "cursor": {
+        "id": 0,
+        "ns": "test.$cmd.listCollections",
+        "firstBatch": [
+            {
+                "name": "test",
+                "type": "collection",
+                "options": {
+                    "validator": {
+                        "$jsonSchema": {
+                            "properties": {
+                                "ssn": {
+                                    "encrypt": {
+                                        "keyId": {
+                                            "$binary": {
+                                                "base64": "AAAAAAAAAAAAAAAAAAAAAA==",
+                                                "subType": "04"
+                                            }
+                                        },
+                                        "type": "string",
+                                        "algorithm": "Deterministic",
+                                        "iv": {
+                                            "$binary": {
+                                                "base64": "aWlpaWlpaWlpaWlpaWlpaQ==",
+                                                "subType": "00"
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            "bsonType": "object"
+                        }
+                    }
+                }
+            }
+        ]
+    },
+    "ok": 1
+}

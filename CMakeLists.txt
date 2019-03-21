@@ -41,6 +41,7 @@ set (MONGOCRYPT_SOURCES
    src/mongocrypt-buffer.c
    src/mongocrypt-commoncrypto.c
    src/mongocrypt-crypto.c
+   src/mongocrypt-ctx.c
    src/mongocrypt-decryptor.c
    src/mongocrypt-encryptor.c
    src/mongocrypt-key-broker.c

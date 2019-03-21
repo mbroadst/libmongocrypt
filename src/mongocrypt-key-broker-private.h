@@ -20,10 +20,46 @@
 #include <bson/bson.h>
 
 #include "kms_message/kms_message.h"
-#include "mongocrypt-key-broker.h"
 #include "mongocrypt-key-decryptor-private.h"
 #include "mongocrypt-key-cache-private.h"
 #include "mongocrypt-binary-private.h"
+
+typedef struct _mongocrypt_key_broker_t mongocrypt_key_broker_t;
+
+/* Create a filter for all keys which must be fetched from the key vault. */
+MONGOCRYPT_EXPORT
+mongocrypt_binary_t *
+mongocrypt_key_broker_get_key_filter (mongocrypt_key_broker_t *kb);
+
+bool
+_mongocrypt_key_broker_append_filter (mongocrypt_key_broker_t *kb, bson_t* doc);
+
+
+MONGOCRYPT_EXPORT
+bool
+mongocrypt_key_broker_add_key (mongocrypt_key_broker_t *kb,
+                               const mongocrypt_binary_t *key);
+
+
+MONGOCRYPT_EXPORT
+bool
+mongocrypt_key_broker_done_adding_keys (mongocrypt_key_broker_t *kb);
+
+
+MONGOCRYPT_EXPORT
+mongocrypt_key_decryptor_t *
+mongocrypt_key_broker_next_decryptor (mongocrypt_key_broker_t *kb);
+
+
+MONGOCRYPT_EXPORT
+bool
+mongocrypt_key_broker_add_decrypted_key (
+   mongocrypt_key_broker_t *kb,
+   mongocrypt_key_decryptor_t *key_decryptor);
+
+MONGOCRYPT_EXPORT
+mongocrypt_status_t *
+mongocrypt_key_broker_status (mongocrypt_key_broker_t *kb);
 
 /* The key broker acts as a middle-man between an encrypt/decrypt request and
  * the key cache.
@@ -58,6 +94,7 @@ struct _mongocrypt_key_broker_t {
 
    mongocrypt_status_t *status;
    _mongocrypt_buffer_t filter;
+   _mongocrypt_buffer_t find_cmd;
    bool all_keys_added;
 };
 

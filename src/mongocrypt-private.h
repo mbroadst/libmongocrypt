@@ -30,13 +30,13 @@
 
 #define CLIENT_ERR_W_CODE(code, ...) \
    _mongocrypt_set_error (           \
-      status, MONGOCRYPT_ERROR_TYPE_CLIENT, code, __VA_ARGS__)
+      status, MONGOCRYPT_STATUS_ERROR_CLIENT, code, __VA_ARGS__)
 
 #define CLIENT_ERR(...) \
    CLIENT_ERR_W_CODE (MONGOCRYPT_GENERIC_ERROR_CODE, __VA_ARGS__)
 
 #define KMS_ERR_W_CODE(code, ...) \
-   _mongocrypt_set_error (status, MONGOCRYPT_ERROR_TYPE_KMS, code, __VA_ARGS__)
+   _mongocrypt_set_error (status, MONGOCRYPT_STATUS_ERROR_KMS, code, __VA_ARGS__)
 
 #define KMS_ERR(...) KMS_ERR_W_CODE (MONGOCRYPT_GENERIC_ERROR_CODE, __VA_ARGS__)
 
@@ -53,16 +53,11 @@ tmp_buf (const _mongocrypt_buffer_t *buf);
 
 void
 _mongocrypt_set_error (mongocrypt_status_t *status,
-                       mongocrypt_error_type_t type,
+                       mongocrypt_status_type_t type,
                        uint32_t code,
                        const char *format,
                        ...);
 
-void
-_bson_error_to_mongocrypt_error (const bson_error_t *bson_error,
-                                 mongocrypt_error_type_t type,
-                                 uint32_t code,
-                                 mongocrypt_status_t *status);
 
 struct _mongocrypt_t {
    mongocrypt_opts_t *opts;
@@ -71,6 +66,7 @@ struct _mongocrypt_t {
    /* The key cache has its own interal mutex. */
    _mongocrypt_key_cache_t *key_cache;
    _mongocrypt_log_t log;
+   mongocrypt_status_t *status;
 };
 
 typedef struct {

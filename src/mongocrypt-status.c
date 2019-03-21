@@ -39,8 +39,8 @@ mongocrypt_status_code (mongocrypt_status_t *status)
 }
 
 
-mongocrypt_error_type_t
-mongocrypt_status_error_type (mongocrypt_status_t *status)
+mongocrypt_status_type_t
+mongocrypt_status_type (mongocrypt_status_t *status)
 {
    return status->type;
 }
@@ -49,7 +49,7 @@ mongocrypt_status_error_type (mongocrypt_status_t *status)
 bool
 mongocrypt_status_ok (mongocrypt_status_t *status)
 {
-   return (status->type == MONGOCRYPT_ERROR_TYPE_NONE);
+   return (status->type == MONGOCRYPT_STATUS_OK);
 }
 
 void
@@ -70,7 +70,7 @@ mongocrypt_status_copy_to (mongocrypt_status_t *src, mongocrypt_status_t *dst)
 void
 mongocrypt_status_reset (mongocrypt_status_t *status)
 {
-   status->type = MONGOCRYPT_ERROR_TYPE_NONE;
+   status->type = MONGOCRYPT_STATUS_OK;
    status->code = 0;
    memset (status->message, 0, MONGOCRYPT_STATUS_MSG_LEN);
 }

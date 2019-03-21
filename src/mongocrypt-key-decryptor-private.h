@@ -17,17 +17,28 @@
 #ifndef MONGOCRYPT_KEY_DECRYPTOR_PRIVATE_H
 #define MONGOCRYPT_KEY_DECRYPTOR_PRIVATE_H
 
-#include "mongocrypt-key-decryptor.h"
+#include "mongocrypt.h"
 #include "mongocrypt-buffer-private.h"
 #include "kms_message/kms_decrypt_request.h"
 
-struct _mongocrypt_key_decryptor_t {
+typedef struct _mongocrypt_key_decryptor_t {
    kms_request_t *req;
    kms_response_parser_t *parser;
    mongocrypt_status_t *status;
    _mongocrypt_buffer_t msg;
    void *ctx;
-};
+} mongocrypt_key_decryptor_t;
+
+mongocrypt_binary_t *
+mongocrypt_key_decryptor_msg (mongocrypt_key_decryptor_t *kd);
+
+bool
+mongocrypt_key_decryptor_feed (mongocrypt_key_decryptor_t *kd,
+                               mongocrypt_binary_t *bytes);
+
+int
+mongocrypt_key_decryptor_bytes_needed (mongocrypt_key_decryptor_t *kd,
+                                       uint32_t max_bytes);
 
 void
 _mongocrypt_key_decryptor_init (mongocrypt_key_decryptor_t *kd,

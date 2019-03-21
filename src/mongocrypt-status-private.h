@@ -17,12 +17,12 @@
 #ifndef MONGOCRYPT_STATUS_PRIVATE_H
 #define MONGOCRYPT_STATUS_PRIVATE_H
 
-#include "mongocrypt-status.h"
+#include "mongocrypt.h"
 
 #define MONGOCRYPT_STATUS_MSG_LEN 1024
 
 struct _mongocrypt_status_t {
-   mongocrypt_error_type_t type;
+   mongocrypt_status_type_t type;
    uint32_t code;
    char message[MONGOCRYPT_STATUS_MSG_LEN];
 };
