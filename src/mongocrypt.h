@@ -260,36 +260,60 @@ typedef enum {
    MONGOCRYPT_CTX_ERROR,
    MONGOCRYPT_CTX_NOTHING_TO_DO,
    MONGOCRYPT_CTX_NEED_MONGO,
+   MONGOCRYPT_CTX_NEED_MONGO_KEY_VAULT,
    MONGOCRYPT_CTX_NEED_MONGOCRYPTD,
    MONGOCRYPT_CTX_NEED_KMS,
    MONGOCRYPT_CTX_READY, /* ready for encryption/decryption */
    MONGOCRYPT_CTX_DONE
 } mongocrypt_ctx_state_t;
 
-
 MONGOCRYPT_EXPORT
 mongocrypt_ctx_state_t
 mongocrypt_ctx_state (mongocrypt_ctx_t *ctx);
 
 
-/**
- * Get the BSON representing a command that should be sent to
- * mongod/mongocryptd. Use your driver's
- * runCommand helper.
- */
-MONGOCRYPT_EXPORT
-bool
-mongocrypt_ctx_mongo_cmd (mongocrypt_ctx_t *ctx,
-                          mongocrypt_binary_t *out,
-                          const char **on_db);
+/* Encapsulates an operation to run on a MongoDB server. */
+typedef struct _mongocrypt_mongo_op_t mongocrypt_mongo_op_t;
+
+
+typedef enum {
+   MONGOCRYPT_OP_LIST_COLLECTIONS,
+   MONGOCRYPT_OP_FIND,
+   MONGOCRYPT_OP_RUN_COMMAND
+} mongocrypt_mongo_op_type_t;
 
 
 /**
- * Feed back the reply from runCommand.
+ * Get the mongo operation to run. Call this when the mongocrypt_ctx_t
+ * is in MONGOCRYPT_CTX_NEED_MONGO, MONGOCRYPT_CTX_NEED_MONGO_KEY_VAULT,
+ * or MONGOCRYPT_CTX_NEED_MONGOCRYPTD.
+ *
+ * op_bson is a BSON document to be used for the operation.
+ * If optype_out == MONGOCRYPT_OP_LIST_COLLECTIONS it is a filter
+ * if optype_out == MONGOCRYPT_OP_FIND, it is a filter
+ * If optype_out == MONGOCRYPT_OP_RUN_COMMAND it is a command.
+ */
+MONGOCRYPT_EXPORT
+mongocrypt_mongo_op_t *
+mongocrypt_ctx_mongo_op (mongocrypt_ctx_t *ctx,
+                         mongocrypt_binary_t *out,
+                         mongocrypt_mongo_op_type_t *op_type_out
+                            mongocrypt_binary_t *op_bson);
+
+
+/**
+ * Feed BSON back. This is either the runCommand reply, or a document from a
+ * cursor.
  */
 MONGOCRYPT_EXPORT
 bool
-mongocrypt_ctx_mongo_reply (mongocrypt_ctx_t *ctx, mongocrypt_binary_t *reply);
+mongocrypt_mongo_op_feed (mongocrypt_mongo_op_t *op,
+                          mongocrypt_binary_t *reply);
+
+
+MONGOCRYPT_EXPORT
+bool
+mongocrypt_ctx_mongo_op_done (mongocrypt_ctx_t *ctx, mongocrypt_mongo_op_t *op);
 
 
 typedef struct _mongocrypt_kms_ctx_t mongocrypt_kms_ctx_t;
