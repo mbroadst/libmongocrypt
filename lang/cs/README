@@ -1,0 +1,10 @@
+README
+
+Requirements
+
+
+How to build on Linux
+
+1. Build libmongocrypt with Cmake
+2. cd <build>/lang/cs
+3. dotnet build
