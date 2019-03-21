@@ -47,7 +47,7 @@ typedef struct _mongocrypt_binary_t mongocrypt_binary_t;
 
 /**
  * Create a new non-owning view of a buffer (data + length).
- * 
+ *
  * @returns A new mongocrypt_binary_t.
  */
 MONGOCRYPT_EXPORT
@@ -106,9 +106,9 @@ typedef struct _mongocrypt_status_t mongocrypt_status_t;
 
 
 typedef enum {
-    MONGOCRYPT_STATUS_OK,
-    MONGOCRYPT_STATUS_ERROR_CLIENT,
-    MONGOCRYPT_STATUS_ERROR_KMS
+   MONGOCRYPT_STATUS_OK,
+   MONGOCRYPT_STATUS_ERROR_CLIENT,
+   MONGOCRYPT_STATUS_ERROR_KMS
 } mongocrypt_status_type_t;
 
 
@@ -237,6 +237,9 @@ bool
 mongocrypt_ctx_status (mongocrypt_ctx_t *ctx, mongocrypt_status_t *out);
 
 
+/**
+ * Initialize a handle for encryption. @cmd is the command to be encrypted.
+ */
 MONGOCRYPT_EXPORT
 bool
 mongocrypt_ctx_encrypt_init (mongocrypt_ctx_t *ctx,
@@ -245,6 +248,9 @@ mongocrypt_ctx_encrypt_init (mongocrypt_ctx_t *ctx,
                              mongocrypt_binary_t *cmd);
 
 
+/**
+ * Initialize a handle for decryption. @doc is a document to be decrypted.
+ */
 MONGOCRYPT_EXPORT
 bool
 mongocrypt_ctx_decrypt_init (mongocrypt_ctx_t *ctx, mongocrypt_binary_t *doc);
@@ -267,12 +273,15 @@ mongocrypt_ctx_state (mongocrypt_ctx_t *ctx);
 
 
 /**
- * Get the BSON representing a command that should be sent to mongod/mongocryptd. Use your driver's
+ * Get the BSON representing a command that should be sent to
+ * mongod/mongocryptd. Use your driver's
  * runCommand helper.
  */
 MONGOCRYPT_EXPORT
 bool
-mongocrypt_ctx_mongo_cmd (mongocrypt_ctx_t *ctx, mongocrypt_binary_t *out, const char** on_db);
+mongocrypt_ctx_mongo_cmd (mongocrypt_ctx_t *ctx,
+                          mongocrypt_binary_t *out,
+                          const char **on_db);
 
 
 /**
@@ -318,7 +327,7 @@ mongocrypt_ctx_kms_ctx_done (mongocrypt_ctx_t *ctx, mongocrypt_kms_ctx_t *kms);
 
 MONGOCRYPT_EXPORT
 bool
-mongocrypt_ctx_finalize (mongocrypt_ctx_t *ctx, mongocrypt_binary_t* out);
+mongocrypt_ctx_finalize (mongocrypt_ctx_t *ctx, mongocrypt_binary_t *out);
 
 
 MONGOCRYPT_EXPORT
