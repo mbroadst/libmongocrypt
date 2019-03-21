@@ -297,8 +297,8 @@ MONGOCRYPT_EXPORT
 mongocrypt_mongo_op_t *
 mongocrypt_ctx_mongo_op (mongocrypt_ctx_t *ctx,
                          mongocrypt_binary_t *out,
-                         mongocrypt_mongo_op_type_t *op_type_out
-                            mongocrypt_binary_t *op_bson);
+                         mongocrypt_mongo_op_type_t *op_type_out,
+                         mongocrypt_binary_t *op_bson);
 
 
 /**
