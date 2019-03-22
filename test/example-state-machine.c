@@ -142,7 +142,7 @@ _run_state_machine (mongocrypt_ctx_t *ctx)
          break;
       case MONGOCRYPT_CTX_NEED_MONGO_MARKINGS:
          mongocrypt_ctx_mongo_op (ctx, output);
-         printf ("running this cmd on mongocrypt:\n");
+         printf ("running cmd on mongocryptd with this schema:\n");
          _print_binary_as_bson (output);
          printf ("mocking reply from file:\n");
          input = _read_json ("./test/example/mongocryptd-reply.json", &data);
@@ -178,7 +178,7 @@ _run_state_machine (mongocrypt_ctx_t *ctx)
          break;
       case MONGOCRYPT_CTX_READY:
          mongocrypt_ctx_finalize (ctx, output);
-         printf ("\nfinal bson is:");
+         printf ("\nfinal bson is:\n");
          _print_binary_as_bson (output);
          break;
       case MONGOCRYPT_CTX_DONE:
@@ -208,17 +208,17 @@ main ()
    mongocrypt_binary_t *input;
    uint8_t *data;
 
-   printf("******* ENCRYPTION *******\n\n");
+   printf ("******* ENCRYPTION *******\n\n");
    crypt = mongocrypt_new (NULL);
    ctx = mongocrypt_ctx_new (crypt);
    input = _read_json ("./test/example/command.json", &data);
-   mongocrypt_ctx_encrypt_init (ctx, "test.test", 9, input);
+   mongocrypt_ctx_encrypt_init (ctx, "test.test", 9);
    mongocrypt_binary_destroy (input);
    bson_free (data);
    _run_state_machine (ctx);
    mongocrypt_ctx_destroy (ctx);
 
-   printf("\n******* DECRYPTION *******\n\n");
+   printf ("\n******* DECRYPTION *******\n\n");
    ctx = mongocrypt_ctx_new (crypt);
    input = _read_json ("./test/example/encrypted-document.json", &data);
    mongocrypt_ctx_decrypt_init (ctx, input);

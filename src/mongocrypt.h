@@ -48,11 +48,14 @@ typedef struct _mongocrypt_binary_t mongocrypt_binary_t;
 /**
  * Create a new non-owning view of a buffer (data + length).
  *
+ * Use this to create a mongocrypt_binary_t used for output parameters.
+ *
  * @returns A new mongocrypt_binary_t.
  */
 MONGOCRYPT_EXPORT
 mongocrypt_binary_t *
 mongocrypt_binary_new (void);
+
 
 /**
  * Create a new non-owning view of a buffer (data + length).
@@ -93,7 +96,11 @@ mongocrypt_binary_len (const mongocrypt_binary_t *binary);
 
 
 /**
- * Free the mongocrypt_binary_t. Does not free the referenced data.
+ * Free the mongocrypt_binary_t.
+ *
+ * This does not free the referenced data. Refer to individual function
+ * documentation to determine the lifetime guarantees of the underlying
+ * data.
  *
  * @param binary The mongocrypt_binary_t destroy.
  */
@@ -118,11 +125,6 @@ mongocrypt_status_new (void);
 
 
 MONGOCRYPT_EXPORT
-void
-mongocrypt_status_destroy (mongocrypt_status_t *status);
-
-
-MONGOCRYPT_EXPORT
 mongocrypt_status_type_t
 mongocrypt_status_type (mongocrypt_status_t *status);
 
@@ -140,6 +142,11 @@ mongocrypt_status_message (mongocrypt_status_t *status);
 MONGOCRYPT_EXPORT
 bool
 mongocrypt_status_ok (mongocrypt_status_t *status);
+
+
+MONGOCRYPT_EXPORT
+void
+mongocrypt_status_destroy (mongocrypt_status_t *status);
 
 
 typedef struct _mongocrypt_opts_t mongocrypt_opts_t;
@@ -181,7 +188,7 @@ typedef enum {
 
 
 /**
- * The log callback function.
+ * A log callback function. Set a custom log callback in mongocrypt_new.
  */
 typedef void (*mongocrypt_log_fn_t) (mongocrypt_log_level_t level,
                                      const char *message,
@@ -223,7 +230,18 @@ void
 mongocrypt_destroy (mongocrypt_t *crypt);
 
 
-/* A context manages the state machine for encryption or decryption. */
+/**
+ * Returns true if libmongocrypt knows it can skip checking for
+ * encryption or decryption for a collection.
+ */
+MONGOCRYPT_EXPORT
+bool
+mongocrypt_can_skip (mongocrypt_t *crypt, char *ns, uint32_t ns_len);
+
+
+/**
+ * Manages the state machine for encryption or decryption.
+ */
 typedef struct _mongocrypt_ctx_t mongocrypt_ctx_t;
 
 
@@ -238,14 +256,13 @@ mongocrypt_ctx_status (mongocrypt_ctx_t *ctx, mongocrypt_status_t *out);
 
 
 /**
- * Initialize a handle for encryption. @cmd is the command to be encrypted.
+ * Initialize a handle for encryption.
  */
 MONGOCRYPT_EXPORT
 bool
 mongocrypt_ctx_encrypt_init (mongocrypt_ctx_t *ctx,
                              const char *ns,
-                             uint32_t ns_len,
-                             mongocrypt_binary_t *cmd);
+                             uint32_t ns_len);
 
 
 /**
@@ -261,7 +278,7 @@ typedef enum {
    MONGOCRYPT_CTX_NOTHING_TO_DO,
    MONGOCRYPT_CTX_NEED_MONGO_COLLINFO, /* run on main MongoClient */
    MONGOCRYPT_CTX_NEED_MONGO_MARKINGS, /* run on mongocryptd. */
-   MONGOCRYPT_CTX_NEED_MONGO_KEYS, /* run on key vault */
+   MONGOCRYPT_CTX_NEED_MONGO_KEYS,     /* run on key vault */
    MONGOCRYPT_CTX_NEED_KMS,
    MONGOCRYPT_CTX_READY, /* ready for encryption/decryption */
    MONGOCRYPT_CTX_DONE
@@ -274,23 +291,29 @@ mongocrypt_ctx_state (mongocrypt_ctx_t *ctx);
 
 
 /**
- * Get the mongo operation to run. Call this when the mongocrypt_ctx_t
+ * Get BSON necessary to run the mongo operation when mongocrypt_ctx_t
  * is in MONGOCRYPT_CTX_NEED_MONGO_* states.
  *
  * op_bson is a BSON document to be used for the operation.
- * For MONGOCRYPT_CTX_NEED_MONGO_COLLINFO it is a listCollections filter.
- * For MONGOCRYPT_CTX_NEED_MONGO_KEYS it is a find filter.
- * For MONGOCRYPT_CTX_NEED_MONGO_MARKINGS it is a command.
+ * - For MONGOCRYPT_CTX_NEED_MONGO_COLLINFO it is a listCollections filter.
+ * - For MONGOCRYPT_CTX_NEED_MONGO_KEYS it is a find filter.
+ * - For MONGOCRYPT_CTX_NEED_MONGO_MARKINGS it is a JSON schema to append.
  */
 MONGOCRYPT_EXPORT
 bool
-mongocrypt_ctx_mongo_op (mongocrypt_ctx_t *ctx,
-                         mongocrypt_binary_t *op_bson);
+mongocrypt_ctx_mongo_op (mongocrypt_ctx_t *ctx, mongocrypt_binary_t *op_bson);
 
 
 /**
- * Feed BSON back. This is either a runCommand reply, or a document from a
+ * Feed a BSON reply or result when when mongocrypt_ctx_t is in
+ * MONGOCRYPT_CTX_NEED_MONGO_* states. This may be called multiple times
+ * depending on the operation.
+ *
+ * op_bson is a BSON document to be used for the operation.
+ * - For MONGOCRYPT_CTX_NEED_MONGO_COLLINFO it is a doc from a listCollections
  * cursor.
+ * - For MONGOCRYPT_CTX_NEED_MONGO_KEYS it is a doc from a find cursor.
+ * - For MONGOCRYPT_CTX_NEED_MONGO_MARKINGS it is a reply from mongocryptd.
  */
 MONGOCRYPT_EXPORT
 bool

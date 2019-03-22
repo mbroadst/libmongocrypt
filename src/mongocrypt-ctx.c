@@ -173,18 +173,11 @@ bool
 _mongocrypt_ctx_mongo_op_markings_encrypt (mongocrypt_ctx_t *ctx,
                                            mongocrypt_binary_t *out)
 {
-   /* Append the schema to the command. */
-   bson_t as_bson, marking_cmd, schema;
    _mongocrypt_ctx_encrypt_t *ectx;
 
    ectx = (_mongocrypt_ctx_encrypt_t *) ctx;
-   _mongocrypt_buffer_to_bson (&ectx->original_cmd, &as_bson);
-   bson_copy_to (&as_bson, &marking_cmd);
-   _mongocrypt_buffer_to_bson (&ectx->schema, &schema);
-   bson_append_document (&marking_cmd, "jsonSchema", -1, &schema);
-   _mongocrypt_buffer_steal_from_bson (&ectx->marking_cmd, &marking_cmd);
-   out->data = ectx->marking_cmd.data;
-   out->len = ectx->marking_cmd.len;
+   out->data = ectx->schema.data;
+   out->len = ectx->schema.len;
    return true;
 }
 
@@ -241,8 +234,11 @@ _mongocrypt_ctx_mongo_feed_markings_encrypt (mongocrypt_ctx_t *ctx,
    _mongocrypt_buffer_copy_from_document_iter (&ectx->marked_cmd, &iter);
 
    bson_iter_recurse (&iter, &iter);
-   if (!_mongocrypt_traverse_binary_in_bson (
-          _collect_key_from_marking, (void *) ectx, TRAVERSE_MATCH_MARKING, &iter, status)) {
+   if (!_mongocrypt_traverse_binary_in_bson (_collect_key_from_marking,
+                                             (void *) ectx,
+                                             TRAVERSE_MATCH_MARKING,
+                                             &iter,
+                                             status)) {
       /* TODO: rebase on recent fixes for the first byte. */
       ectx->parent.state = MONGOCRYPT_CTX_ERROR;
       return false;
@@ -598,7 +594,7 @@ _mongocrypt_ctx_mongo_op_invalid (mongocrypt_ctx_t *ctx,
 
 static bool
 _mongocrypt_ctx_mongo_feed_invalid (mongocrypt_ctx_t *ctx,
-                                  mongocrypt_binary_t *in)
+                                    mongocrypt_binary_t *in)
 {
    FAIL_CTX ("invalid state");
    return false;
@@ -635,8 +631,7 @@ mongocrypt_ctx_destroy (mongocrypt_ctx_t *ctx)
 bool
 mongocrypt_ctx_encrypt_init (mongocrypt_ctx_t *ctx,
                              const char *ns,
-                             uint32_t ns_len,
-                             mongocrypt_binary_t *cmd)
+                             uint32_t ns_len)
 {
    _mongocrypt_ctx_encrypt_t *ectx;
 
@@ -645,7 +640,6 @@ mongocrypt_ctx_encrypt_init (mongocrypt_ctx_t *ctx,
    ectx->ns = bson_strdup (ns);
    /* TODO: check if schema is cached. If we know encryption isn't needed. We
     * can avoid a needless copy. */
-   _mongocrypt_buffer_copy_from_binary (&ectx->original_cmd, cmd);
    ectx->parent.state = MONGOCRYPT_CTX_NEED_MONGO_COLLINFO;
    ctx->vtable.mongo_op_collinfo = _mongocrypt_ctx_mongo_op_collinfo_encrypt;
    ctx->vtable.mongo_feed_collinfo =
@@ -672,10 +666,9 @@ struct fle_blob {
 TODO CDRIVER-3001 this may not be the right home for this method.
 */
 static bool
-_parse_ciphertext_unowned (
-   _mongocrypt_buffer_t *in,
-   _mongocrypt_ciphertext_t *ciphertext,
-   mongocrypt_status_t *status)
+_parse_ciphertext_unowned (_mongocrypt_buffer_t *in,
+                           _mongocrypt_ciphertext_t *ciphertext,
+                           mongocrypt_status_t *status)
 {
    uint32_t offset;
 
@@ -763,10 +756,9 @@ _replace_ciphertext_with_plaintext (void *ctx,
    BSON_ASSERT (in);
    BSON_ASSERT (out);
 
-   dctx = (_mongocrypt_ctx_decrypt_t*) ctx;
+   dctx = (_mongocrypt_ctx_decrypt_t *) ctx;
 
-   if (!_parse_ciphertext_unowned (
-          in, &ciphertext, dctx->parent.status)) {
+   if (!_parse_ciphertext_unowned (in, &ciphertext, dctx->parent.status)) {
       goto fail;
    }
 
@@ -810,20 +802,27 @@ fail:
 
 
 static bool
-_mongocrypt_ctx_decrypt_finalize (mongocrypt_ctx_t *ctx, mongocrypt_binary_t *out) {
+_mongocrypt_ctx_decrypt_finalize (mongocrypt_ctx_t *ctx,
+                                  mongocrypt_binary_t *out)
+{
    bson_t as_bson, final;
    bson_iter_t iter;
    _mongocrypt_ctx_decrypt_t *dctx;
-   mongocrypt_status_t* status;
+   mongocrypt_status_t *status;
    bool res;
 
-   dctx = (_mongocrypt_ctx_decrypt_t*) ctx;
+   dctx = (_mongocrypt_ctx_decrypt_t *) ctx;
    status = dctx->parent.status;
    _mongocrypt_buffer_to_bson (&dctx->original_doc, &as_bson);
    bson_iter_init (&iter, &as_bson);
    bson_init (&final);
-   res = _mongocrypt_transform_binary_in_bson (
-      _replace_ciphertext_with_plaintext, dctx, TRAVERSE_MATCH_CIPHERTEXT, &iter, &final, status);
+   res =
+      _mongocrypt_transform_binary_in_bson (_replace_ciphertext_with_plaintext,
+                                            dctx,
+                                            TRAVERSE_MATCH_CIPHERTEXT,
+                                            &iter,
+                                            &final,
+                                            status);
    if (!res) {
       dctx->parent.state = MONGOCRYPT_CTX_ERROR;
       return false;
@@ -875,4 +874,12 @@ mongocrypt_ctx_decrypt_init (mongocrypt_ctx_t *ctx, mongocrypt_binary_t *doc)
    }
 
    return true;
+}
+
+
+bool
+mongocrypt_can_skip (mongocrypt_t *crypt, char *ns, uint32_t ns_len)
+{
+   /* TODO: confer with schema cache. */
+   return false;
 }
