@@ -28,32 +28,27 @@ typedef enum {
 } _mongocrypt_ctx_type_t;
 
 
-typedef enum {
-   _MONGOCRYPT_ENCRYPT_ERROR,
-   _MONGOCRYPT_ENCRYPT_NEED_SCHEMA,
-   _MONGOCRYPT_ENCRYPT_NEED_MARKINGS,
-   _MONGOCRYPT_ENCRYPT_NEED_KEYS,
-   _MONGOCRYPT_ENCRYPT_NEED_KEYS_DECRYPTED,
-   _MONGOCRYPT_ENCRYPT_NEED_ENCRYPTION,
-   _MONGOCRYPT_ENCRYPT_NO_ENCRYPTION_NEEDED,
-   _MONGOCRYPT_ENCRYPT_ENCRYPTED
-} _mongocrypt_ctx_encrypt_state_t;
+typedef bool (*_mongocrypt_ctx_mongo_op_fn) (mongocrypt_ctx_t *ctx,
+                                              mongocrypt_binary_t *out);
 
-
-typedef bool (*_mongocrypt_ctx_mongo_cmd_fn) (mongocrypt_ctx_t *ctx,
-                                              mongocrypt_binary_t *out,
-                                              const char **out_ns);
-
-typedef bool (*_mongocrypt_ctx_mongo_reply_fn) (mongocrypt_ctx_t *ctx,
+typedef bool (*_mongocrypt_ctx_mongo_feed_fn) (mongocrypt_ctx_t *ctx,
                                                 mongocrypt_binary_t *in);
+
+typedef bool (*_mongocrypt_ctx_mongo_done_fn) (mongocrypt_ctx_t *ctx);
 
 typedef bool (*_mongocrypt_ctx_finalize_fn) (mongocrypt_ctx_t *ctx,
                                              mongocrypt_binary_t *out);
 
 
 typedef struct {
-   _mongocrypt_ctx_mongo_cmd_fn mongo_cmd;
-   _mongocrypt_ctx_mongo_reply_fn mongo_reply;
+   _mongocrypt_ctx_mongo_op_fn mongo_op_collinfo;
+   _mongocrypt_ctx_mongo_feed_fn mongo_feed_collinfo;
+   _mongocrypt_ctx_mongo_done_fn mongo_done_collinfo;
+   
+   _mongocrypt_ctx_mongo_op_fn mongo_op_markings;
+   _mongocrypt_ctx_mongo_feed_fn mongo_feed_markings;
+   _mongocrypt_ctx_mongo_done_fn mongo_done_markings;
+
    _mongocrypt_ctx_finalize_fn finalize;
 } _mongocrypt_vtable_t;
 
@@ -70,9 +65,8 @@ struct _mongocrypt_ctx_t {
 
 typedef struct {
    struct _mongocrypt_ctx_t parent;
-   _mongocrypt_ctx_encrypt_state_t state;
    const char *ns;
-   _mongocrypt_buffer_t list_collections_cmd;
+   _mongocrypt_buffer_t list_collections_filter;
    _mongocrypt_buffer_t schema;
    _mongocrypt_buffer_t original_cmd;
    _mongocrypt_buffer_t marking_cmd;
@@ -106,42 +100,71 @@ mongocrypt_ctx_new (mongocrypt_t *crypt)
 
 /* Construct the list collections command to send. */
 bool
-_mongocrypt_ctx_encrypt_schema (_mongocrypt_ctx_encrypt_t *ectx,
-                                mongocrypt_binary_t *out,
-                                const char **on_db)
+_mongocrypt_ctx_mongo_op_collinfo_encrypt (mongocrypt_ctx_t *ctx,
+                                mongocrypt_binary_t *out)
 {
+   _mongocrypt_ctx_encrypt_t *ectx;
    bson_t *cmd;
 
-   cmd = BCON_NEW ("listCollections",
-                   BCON_INT32 (1),
-                   "filter",
-                   "{",
-                   "name",
+   ectx = (_mongocrypt_ctx_encrypt_t*)ctx;
+   cmd = BCON_NEW ("name",
                    BCON_UTF8 (ectx->ns),
                    "options.validator.$jsonSchema",
                    "{",
                    "$exists",
                    BCON_BOOL (true),
-                   "}",
                    "}");
    CRYPT_TRACEF (&ectx->parent.crypt->log, "constructed: %s\n", tmp_json (cmd));
-   _mongocrypt_buffer_steal_from_bson (&ectx->list_collections_cmd, cmd);
-   out->data = ectx->list_collections_cmd.data;
-   out->len = ectx->list_collections_cmd.len;
-   *on_db = ectx->ns;
+   _mongocrypt_buffer_steal_from_bson (&ectx->list_collections_filter, cmd);
+   out->data = ectx->list_collections_filter.data;
+   out->len = ectx->list_collections_filter.len;
    return true;
 }
 
 
 bool
-_mongocrypt_ctx_encrypt_markings (_mongocrypt_ctx_encrypt_t *ectx,
-                                  mongocrypt_binary_t *out,
-                                  const char **on_db)
+_mongocrypt_ctx_mongo_feed_collinfo_encrypt (mongocrypt_ctx_t *ctx,
+                                      mongocrypt_binary_t *in)
+{
+   /* Parse out the schema. */
+   bson_t as_bson;
+   bson_iter_t iter;
+   _mongocrypt_ctx_encrypt_t *ectx;
+
+   ectx = (_mongocrypt_ctx_encrypt_t*)ctx;
+   BSON_ASSERT (bson_init_static (&as_bson, in->data, in->len));
+   bson_iter_init (&iter, &as_bson);
+   if (bson_iter_find_descendant (&iter, "options.validator.$jsonSchema", &iter)) {
+      _mongocrypt_buffer_copy_from_document_iter (&ectx->schema, &iter);
+   }
+   return true;
+}
+
+
+bool
+_mongocrypt_ctx_mongo_done_collinfo_encrypt (mongocrypt_ctx_t *ctx)
+{
+   _mongocrypt_ctx_encrypt_t *ectx;
+
+   ectx = (_mongocrypt_ctx_encrypt_t*)ctx;
+   if (_mongocrypt_buffer_empty (&ectx->schema)) {
+      ectx->parent.state = MONGOCRYPT_CTX_NOTHING_TO_DO;
+   } else {
+      ectx->parent.state = MONGOCRYPT_CTX_NEED_MONGO_MARKINGS;
+   }
+   return true;
+}
+
+
+bool
+_mongocrypt_ctx_mongo_op_markings_encrypt (mongocrypt_ctx_t *ctx,
+                                  mongocrypt_binary_t *out)
 {
    /* Append the schema to the command. */
    bson_t as_bson, marking_cmd, schema;
-   static char *admin = "admin";
+   _mongocrypt_ctx_encrypt_t *ectx;
 
+   ectx = (_mongocrypt_ctx_encrypt_t*)ctx;
    _mongocrypt_buffer_to_bson (&ectx->original_cmd, &as_bson);
    bson_copy_to (&as_bson, &marking_cmd);
    _mongocrypt_buffer_to_bson (&ectx->schema, &schema);
@@ -149,83 +172,6 @@ _mongocrypt_ctx_encrypt_markings (_mongocrypt_ctx_encrypt_t *ectx,
    _mongocrypt_buffer_steal_from_bson (&ectx->marking_cmd, &marking_cmd);
    out->data = ectx->marking_cmd.data;
    out->len = ectx->marking_cmd.len;
-   *on_db = admin;
-   return true;
-}
-
-
-/* Common to both encrypt and decrypt context. */
-bool
-_mongocrypt_ctx_key_find (mongocrypt_ctx_t *ctx,
-                          mongocrypt_binary_t *out,
-                          const char **on_db)
-{
-   /* Construct the find command to fetch keys. */
-   bson_t cmd, filter;
-   static char *admin = "admin";
-
-   bson_init (&cmd);
-   bson_append_utf8 (&cmd, "find", -1, "datakeys", -1);
-   _mongocrypt_key_broker_append_filter (&ctx->kb, &cmd);
-   *on_db = admin;
-
-   out->data = bson_destroy_with_steal (&cmd, true, &out->len);
-   return true;
-}
-
-
-bool
-_mongocrypt_ctx_encrypt_mongo_cmd (mongocrypt_ctx_t *ctx,
-                                   mongocrypt_binary_t *cmd,
-                                   const char **on_db)
-{
-   mongocrypt_status_t *status;
-   _mongocrypt_ctx_encrypt_t *ectx;
-
-   status = ctx->status;
-   ectx = (_mongocrypt_ctx_encrypt_t *) ctx;
-   switch (ectx->state) {
-   case _MONGOCRYPT_ENCRYPT_NEED_SCHEMA:
-      return _mongocrypt_ctx_encrypt_schema (ectx, cmd, on_db);
-   case _MONGOCRYPT_ENCRYPT_NEED_MARKINGS:
-      return _mongocrypt_ctx_encrypt_markings (ectx, cmd, on_db);
-   case _MONGOCRYPT_ENCRYPT_NEED_KEYS:
-      return _mongocrypt_ctx_key_find (ctx, cmd, on_db);
-   case _MONGOCRYPT_ENCRYPT_ERROR:
-   case _MONGOCRYPT_ENCRYPT_NEED_KEYS_DECRYPTED:
-   case _MONGOCRYPT_ENCRYPT_NEED_ENCRYPTION:
-   case _MONGOCRYPT_ENCRYPT_NO_ENCRYPTION_NEEDED:
-   case _MONGOCRYPT_ENCRYPT_ENCRYPTED:
-   default:
-      CLIENT_ERR ("wrong state");
-      return false;
-   }
-   return false;
-}
-
-
-bool
-_mongocrypt_ctx_encrypt_schema_reply (_mongocrypt_ctx_encrypt_t *ectx,
-                                      mongocrypt_binary_t *in)
-{
-   /* Parse out the schema. */
-   bson_t as_bson;
-   bson_iter_t iter;
-
-   BSON_ASSERT (bson_init_static (&as_bson, in->data, in->len));
-   bson_iter_init (&iter, &as_bson);
-   if (bson_iter_find_descendant (
-          &iter, "cursor.firstBatch.0.options.validator.$jsonSchema", &iter)) {
-      _mongocrypt_buffer_copy_from_document_iter (&ectx->schema, &iter);
-      _mongocrypt_buffer_to_bson (&ectx->schema, &as_bson);
-      /* CRYPT_TRACEF(&ectx->parent.crypt->log, "found schema: %s",
-       * tmp_json(&as_bson)); */
-      ectx->parent.state = MONGOCRYPT_CTX_NEED_MONGOCRYPTD;
-      ectx->state = _MONGOCRYPT_ENCRYPT_NEED_MARKINGS;
-   } else {
-      ectx->parent.state = MONGOCRYPT_CTX_NOTHING_TO_DO;
-      ectx->state = _MONGOCRYPT_ENCRYPT_NO_ENCRYPTION_NEEDED;
-   }
    return true;
 }
 
@@ -260,111 +206,165 @@ _collect_key_from_marking (void *ctx, _mongocrypt_buffer_t *in)
 
 
 bool
-_mongocrypt_ctx_encrypt_markings_reply (_mongocrypt_ctx_encrypt_t *ectx,
+_mongocrypt_ctx_mongo_feed_markings_encrypt (mongocrypt_ctx_t *ctx,
                                         mongocrypt_binary_t *in)
 {
    /* Find keys. */
    mongocrypt_status_t *status;
    bson_t as_bson;
    bson_iter_t iter;
+   _mongocrypt_ctx_encrypt_t *ectx;
 
+   ectx = (_mongocrypt_ctx_encrypt_t*)ctx;
    status = ectx->parent.status;
    _mongocrypt_binary_to_bson (in, &as_bson);
 
    if (!bson_iter_init_find (&iter, &as_bson, "result")) {
       CLIENT_ERR ("marked reply does not have 'result'");
       ectx->parent.state = MONGOCRYPT_CTX_ERROR;
-      ectx->state = _MONGOCRYPT_ENCRYPT_ERROR;
       return false;
    }
 
-   _mongocrypt_buffer_from_document_iter (&ectx->marked_cmd, &iter);
+   _mongocrypt_buffer_copy_from_document_iter (&ectx->marked_cmd, &iter);
 
    bson_iter_recurse (&iter, &iter);
    if (!_mongocrypt_traverse_binary_in_bson (
           _collect_key_from_marking, (void *) ectx, 0, &iter, status)) {
       /* TODO: rebase on recent fixes for the first byte. */
       ectx->parent.state = MONGOCRYPT_CTX_ERROR;
-      ectx->state = _MONGOCRYPT_ENCRYPT_ERROR;
       return false;
    }
 
-   if (_mongocrypt_key_broker_empty (&ectx->parent.kb)) {
-      /* if there were no keys, i.e. no markings, no encryption is needed. */
-      ectx->parent.state = MONGOCRYPT_CTX_NOTHING_TO_DO;
-      ectx->state = _MONGOCRYPT_ENCRYPT_NO_ENCRYPTION_NEEDED;
-   } else {
-      ectx->parent.state = MONGOCRYPT_CTX_NEED_MONGO;
-      ectx->state = _MONGOCRYPT_ENCRYPT_NEED_KEYS;
-   }
    return false;
 }
 
 
 bool
-_mongocrypt_ctx_key_find_reply (mongocrypt_ctx_t *ctx, mongocrypt_binary_t *out)
+_mongocrypt_ctx_mongo_done_markings_encrypt (mongocrypt_ctx_t *ctx)
 {
-   bson_t as_bson;
-   bson_iter_t iter;
-   _mongocrypt_buffer_t buf;
-   /* Parse out the key documents. *AND* possibly make a getMore command. */
+   _mongocrypt_ctx_encrypt_t *ectx;
 
-   _mongocrypt_binary_to_bson (out, &as_bson);
-   bson_iter_init (&iter, &as_bson);
-   bson_iter_find_descendant (&iter, "cursor.firstBatch.0", &iter);
-   _mongocrypt_buffer_from_document_iter (&buf, &iter);
-   _mongocrypt_key_broker_add_doc (&ctx->kb, &buf);
+   ectx = (_mongocrypt_ctx_encrypt_t*)ctx;
+   if (_mongocrypt_key_broker_empty (&ectx->parent.kb)) {
+      /* if there were no keys, i.e. no markings, no encryption is needed. */
+      ectx->parent.state = MONGOCRYPT_CTX_NOTHING_TO_DO;
+   } else {
+      ectx->parent.state = MONGOCRYPT_CTX_NEED_MONGO_KEYS;
+   }
+   return true;
+}
 
-   /* TODO: currently this just takes the first key. Fix this to handle multiple
-    * keys. */
-   mongocrypt_key_broker_done_adding_keys (&ctx->kb);
-   ctx->state = MONGOCRYPT_CTX_NEED_KMS;
+
+/* Common to both encrypt and decrypt context. */
+bool
+_mongocrypt_ctx_mongo_op_keys (mongocrypt_ctx_t *ctx,
+                          mongocrypt_binary_t *out)
+{
+   /* Construct the find filter to fetch keys. */
+   bson_t filter;
+
+   _mongocrypt_key_broker_filter (&ctx->kb, &filter);
+   out->data = bson_destroy_with_steal (&filter, true, &out->len);
    return true;
 }
 
 
 bool
-_mongocrypt_ctx_encrypt_mongo_reply (mongocrypt_ctx_t *ctx,
-                                     mongocrypt_binary_t *out)
+_mongocrypt_ctx_mongo_feed_keys (mongocrypt_ctx_t *ctx, mongocrypt_binary_t *in)
+{
+   _mongocrypt_buffer_t buf;
+
+   _mongocrypt_buffer_from_binary (&buf, in);
+   _mongocrypt_key_broker_add_doc (&ctx->kb, &buf);
+
+   /* TODO: currently this just takes the first key. Fix this to handle multiple
+    * keys. */
+   mongocrypt_key_broker_done_adding_keys (&ctx->kb);
+   return true;
+}
+
+
+bool
+_mongocrypt_ctx_mongo_done_keys (mongocrypt_ctx_t *ctx) {
+   /* TODO: fail the ctx. Make a generic fail_w_status. */
+   ctx->state = MONGOCRYPT_CTX_NEED_KMS;
+   return mongocrypt_key_broker_done_adding_keys (&ctx->kb);
+}
+
+
+bool
+mongocrypt_ctx_mongo_op (mongocrypt_ctx_t *ctx,
+                          mongocrypt_binary_t *out)
 {
    mongocrypt_status_t *status;
-   _mongocrypt_ctx_encrypt_t *ectx;
 
    status = ctx->status;
-   ectx = (_mongocrypt_ctx_encrypt_t *) ctx;
-   switch (ectx->state) {
-   case _MONGOCRYPT_ENCRYPT_NEED_SCHEMA:
-      return _mongocrypt_ctx_encrypt_schema_reply (ectx, out);
-   case _MONGOCRYPT_ENCRYPT_NEED_MARKINGS:
-      return _mongocrypt_ctx_encrypt_markings_reply (ectx, out);
-   case _MONGOCRYPT_ENCRYPT_NEED_KEYS:
-      return _mongocrypt_ctx_key_find_reply (ctx, out);
-   case _MONGOCRYPT_ENCRYPT_ERROR:
-   case _MONGOCRYPT_ENCRYPT_NEED_KEYS_DECRYPTED:
-   case _MONGOCRYPT_ENCRYPT_NEED_ENCRYPTION:
-   case _MONGOCRYPT_ENCRYPT_NO_ENCRYPTION_NEEDED:
-   case _MONGOCRYPT_ENCRYPT_ENCRYPTED:
-   default:
+   switch (ctx->state) {
+      case MONGOCRYPT_CTX_NEED_MONGO_COLLINFO:
+      return ctx->vtable.mongo_op_collinfo (ctx, out);
+      case MONGOCRYPT_CTX_NEED_MONGO_MARKINGS:
+      return ctx->vtable.mongo_op_markings (ctx, out);
+      case MONGOCRYPT_CTX_NEED_MONGO_KEYS:
+      return _mongocrypt_ctx_mongo_op_keys (ctx, out);
+      case MONGOCRYPT_CTX_NEED_KMS:
+      case MONGOCRYPT_CTX_ERROR:
+      case MONGOCRYPT_CTX_DONE:
+      case MONGOCRYPT_CTX_READY:
+      case MONGOCRYPT_CTX_NOTHING_TO_DO:
       CLIENT_ERR ("wrong state");
+      ctx->state = MONGOCRYPT_CTX_ERROR;
       return false;
    }
-   return false;
 }
 
 
 bool
-mongocrypt_ctx_mongo_cmd (mongocrypt_ctx_t *ctx,
-                          mongocrypt_binary_t *out,
-                          const char **on_db)
+mongocrypt_ctx_mongo_feed (mongocrypt_ctx_t *ctx, mongocrypt_binary_t *in)
 {
-   return ctx->vtable.mongo_cmd (ctx, out, on_db);
+   mongocrypt_status_t* status;
+
+   status = ctx->status;
+   switch (ctx->state) {
+      case MONGOCRYPT_CTX_NEED_MONGO_COLLINFO:
+      return ctx->vtable.mongo_feed_collinfo (ctx, in);
+      case MONGOCRYPT_CTX_NEED_MONGO_MARKINGS:
+      return ctx->vtable.mongo_feed_markings (ctx, in);
+      case MONGOCRYPT_CTX_NEED_MONGO_KEYS:
+      return _mongocrypt_ctx_mongo_feed_keys (ctx, in);
+      case MONGOCRYPT_CTX_NEED_KMS:
+      case MONGOCRYPT_CTX_ERROR:
+      case MONGOCRYPT_CTX_DONE:
+      case MONGOCRYPT_CTX_READY:
+      case MONGOCRYPT_CTX_NOTHING_TO_DO:
+      CLIENT_ERR ("wrong state");
+      ctx->state = MONGOCRYPT_CTX_ERROR;
+      return false;
+   }
 }
 
 
 bool
-mongocrypt_ctx_mongo_reply (mongocrypt_ctx_t *ctx, mongocrypt_binary_t *in)
+mongocrypt_ctx_mongo_done (mongocrypt_ctx_t *ctx)
 {
-   return ctx->vtable.mongo_reply (ctx, in);
+   mongocrypt_status_t* status;
+
+   status = ctx->status;
+   switch (ctx->state) {
+      case MONGOCRYPT_CTX_NEED_MONGO_COLLINFO:
+      return ctx->vtable.mongo_done_collinfo (ctx);
+      case MONGOCRYPT_CTX_NEED_MONGO_MARKINGS:
+      return ctx->vtable.mongo_done_markings (ctx);
+      case MONGOCRYPT_CTX_NEED_MONGO_KEYS:
+      return _mongocrypt_ctx_mongo_done_keys (ctx);
+      case MONGOCRYPT_CTX_NEED_KMS:
+      case MONGOCRYPT_CTX_ERROR:
+      case MONGOCRYPT_CTX_DONE:
+      case MONGOCRYPT_CTX_READY:
+      case MONGOCRYPT_CTX_NOTHING_TO_DO:
+      CLIENT_ERR ("wrong state");
+      ctx->state = MONGOCRYPT_CTX_ERROR;
+      return false;
+   }
 }
 
 
@@ -546,7 +546,6 @@ _mongocrypt_ctx_encrypt_finalize (mongocrypt_ctx_t *ctx,
    bson_t as_bson, converted;
    bson_iter_t iter;
    _mongocrypt_ctx_encrypt_t *ectx;
-   bool ret;
    mongocrypt_status_t *status;
 
    status = ctx->status;
@@ -590,10 +589,13 @@ mongocrypt_ctx_encrypt_init (mongocrypt_ctx_t *ctx,
    /* TODO: check if schema is cached. If we know encryption isn't needed. We
     * can avoid a needless copy. */
    _mongocrypt_buffer_copy_from_binary (&ectx->original_cmd, cmd);
-   ectx->state = _MONGOCRYPT_ENCRYPT_NEED_SCHEMA;
-   ectx->parent.state = MONGOCRYPT_CTX_NEED_MONGO;
-   ctx->vtable.mongo_cmd = _mongocrypt_ctx_encrypt_mongo_cmd;
-   ctx->vtable.mongo_reply = _mongocrypt_ctx_encrypt_mongo_reply;
+   ectx->parent.state = MONGOCRYPT_CTX_NEED_MONGO_COLLINFO;
+   ctx->vtable.mongo_op_collinfo = _mongocrypt_ctx_mongo_op_collinfo_encrypt;
+   ctx->vtable.mongo_feed_collinfo = _mongocrypt_ctx_mongo_feed_collinfo_encrypt;
+   ctx->vtable.mongo_done_collinfo = _mongocrypt_ctx_mongo_done_collinfo_encrypt;
+   ctx->vtable.mongo_op_markings = _mongocrypt_ctx_mongo_op_markings_encrypt;
+   ctx->vtable.mongo_feed_markings = _mongocrypt_ctx_mongo_feed_markings_encrypt;
+   ctx->vtable.mongo_done_markings = _mongocrypt_ctx_mongo_done_markings_encrypt;
    ctx->vtable.finalize = _mongocrypt_ctx_encrypt_finalize;
    return true;
 }

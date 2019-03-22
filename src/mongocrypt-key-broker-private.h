@@ -31,8 +31,9 @@ MONGOCRYPT_EXPORT
 mongocrypt_binary_t *
 mongocrypt_key_broker_get_key_filter (mongocrypt_key_broker_t *kb);
 
+/* out is uninitialized */
 bool
-_mongocrypt_key_broker_append_filter (mongocrypt_key_broker_t *kb, bson_t* doc);
+_mongocrypt_key_broker_filter (mongocrypt_key_broker_t *kb, bson_t* out);
 
 
 MONGOCRYPT_EXPORT

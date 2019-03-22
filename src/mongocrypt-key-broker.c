@@ -285,16 +285,16 @@ mongocrypt_key_broker_get_key_filter (mongocrypt_key_broker_t *kb)
 }
 
 bool
-_mongocrypt_key_broker_append_filter (mongocrypt_key_broker_t *kb, bson_t* out)
+_mongocrypt_key_broker_filter (mongocrypt_key_broker_t *kb, bson_t* out)
 {
    _mongocrypt_key_broker_entry_t *iter;
    int i = 0;
-   bson_t filter, _id, _id_in;
+   bson_t _id, _id_in;
 
    BSON_ASSERT (kb);
 
-   bson_append_document_begin (out, "filter", -1, &filter);
-   bson_append_document_begin (&filter, "_id", 3, &_id);
+   bson_init (out);
+   bson_append_document_begin (out, "_id", 3, &_id);
    bson_append_array_begin (&_id, "$in", 3, &_id_in);
 
    for (iter = kb->kb_entry; iter != NULL; iter = iter->next) {
@@ -311,10 +311,9 @@ _mongocrypt_key_broker_append_filter (mongocrypt_key_broker_t *kb, bson_t* out)
    }
 
    bson_append_array_end (&_id, &_id_in);
-   bson_append_document_end (&filter, &_id);
+   bson_append_document_end (out, &_id);
 
 
-   bson_append_document_end (out, &filter);
    return true;
 }
 

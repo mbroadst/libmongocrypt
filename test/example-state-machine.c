@@ -21,14 +21,13 @@
 #include <bson/bson.h>
 #include <mongocrypt.h>
 
-static uint8_t *
-_read_json (const char *path, uint32_t *len)
+static mongocrypt_binary_t*
+_read_json (const char *path, uint8_t** data)
 {
    bson_error_t error;
    bson_json_reader_t *reader;
    bson_t as_bson;
-   bool ret;
-   uint8_t *data;
+   uint32_t len;
 
    reader = bson_json_reader_new_from_file (path, &error);
    if (!reader) {
@@ -41,11 +40,12 @@ _read_json (const char *path, uint32_t *len)
       abort ();
    }
 
-   return bson_destroy_with_steal (&as_bson, true, len);
+   *data = bson_destroy_with_steal (&as_bson, true, &len);
+   return mongocrypt_binary_new_from_data (*data, len);
 }
 
-static uint8_t *
-_read_http (const char *path, uint32_t *len)
+static mongocrypt_binary_t *
+_read_http (const char *path, uint8_t **data)
 {
    int fd;
    char *contents = NULL;
@@ -53,7 +53,7 @@ _read_http (const char *path, uint32_t *len)
    int filesize = 0;
    char storage[512];
    int i;
-   uint8_t *final;
+   uint32_t len;
 
    fd = open (path, O_RDONLY);
    while ((n_read = read (fd, storage, sizeof (storage))) > 0) {
@@ -68,19 +68,19 @@ _read_http (const char *path, uint32_t *len)
    }
 
    close (fd);
-   *len = 0;
+   len = 0;
 
    /* Copy and fix newlines: \n becomes \r\n. */
-   final = bson_malloc0 (filesize * 2);
+   *data = bson_malloc0 (filesize * 2);
    for (i = 0; i < filesize; i++) {
       if (contents[i] == '\n' && contents[i - 1] != '\r') {
-         final[(*len)++] = '\r';
+         (*data)[len++] = '\r';
       }
-      final[(*len)++] = contents[i];
+      (*data)[len++] = contents[i];
    }
 
    bson_free (contents);
-   return final;
+   return mongocrypt_binary_new_from_data (*data, len);
 }
 
 static void
@@ -113,57 +113,76 @@ _print_binary_as_text (mongocrypt_binary_t *binary)
 int
 main ()
 {
-   const char *on_db;
    mongocrypt_t *crypt;
    mongocrypt_ctx_t *ctx;
    mongocrypt_binary_t *input, *output;
-   uint8_t *input_data[4], *cmd;
-   uint32_t input_len[4], cmd_len;
+   uint8_t *data;
    int input_idx;
    mongocrypt_kms_ctx_t *kms;
    mongocrypt_ctx_state_t state;
    mongocrypt_status_t *status;
    bool done = false;
 
-   cmd = _read_json ("./test/example/command.json", &cmd_len);
-   input_data[0] =
-      _read_json ("./test/example/list-collections-reply.json", &input_len[0]);
-   input_data[1] =
-      _read_json ("./test/example/mongocryptd-reply.json", &input_len[1]);
-   input_data[2] = _read_json ("./test/example/key-reply.json", &input_len[2]);
-   input_data[3] = _read_http ("./test/example/kms-reply.txt", &input_len[3]);
-
    crypt = mongocrypt_new (NULL);
    ctx = mongocrypt_ctx_new (crypt);
 
-   input = mongocrypt_binary_new_from_data (cmd, cmd_len);
+   input = _read_json ("./test/example/command.json", &data);
    mongocrypt_ctx_encrypt_init (ctx, "test.test", 9, input);
    mongocrypt_binary_destroy (input);
+   bson_free (data);
    status = mongocrypt_status_new ();
    input_idx = 0;
    state = mongocrypt_ctx_state (ctx);
 
    while (!done) {
-      input = mongocrypt_binary_new_from_data (input_data[input_idx],
-                                               input_len[input_idx]);
+      output = mongocrypt_binary_new ();
+
       switch (state) {
-      case MONGOCRYPT_CTX_NEED_MONGO:
-      case MONGOCRYPT_CTX_NEED_MONGOCRYPTD:
-         mongocrypt_ctx_mongo_cmd (ctx, output, &on_db);
-         printf ("sending the following to mongo%s (on %s):\n",
-                 state == MONGOCRYPT_CTX_NEED_MONGOCRYPTD ? "cryptd" : "",
-                 on_db);
+      case MONGOCRYPT_CTX_NEED_MONGO_COLLINFO:
+         mongocrypt_ctx_mongo_op (ctx, output);
+         printf ("running listCollections on mongod with this filter:\n");
          _print_binary_as_bson (output);
          printf ("mocking reply from file:\n");
+         input = _read_json("./test/example/collection-info.json", &data);
          _print_binary_as_bson (input);
-         mongocrypt_ctx_mongo_reply (ctx, input);
+         mongocrypt_ctx_mongo_feed (ctx, input);
+         mongocrypt_binary_destroy (input);
+         bson_free (data);
+         mongocrypt_ctx_mongo_done (ctx);
+         break;
+      case MONGOCRYPT_CTX_NEED_MONGO_MARKINGS:
+         mongocrypt_ctx_mongo_op (ctx, output);
+         printf ("running this cmd on mongocrypt:\n");
+         _print_binary_as_bson (output);
+         printf ("mocking reply from file:\n");
+         input = _read_json ("./test/example/mongocryptd-reply.json", &data);
+         _print_binary_as_bson (input);
+         mongocrypt_ctx_mongo_feed (ctx, input);
+         mongocrypt_binary_destroy (input);
+         bson_free (data);
+         mongocrypt_ctx_mongo_done (ctx);
+         break;
+      case MONGOCRYPT_CTX_NEED_MONGO_KEYS:
+         mongocrypt_ctx_mongo_op (ctx, output);
+         printf ("running a find on the key vault coll with this filter:\n");
+         _print_binary_as_bson (output);
+         printf ("mocking reply from file:\n");
+         input = _read_json ("./test/example/key-document.json", &data);
+         _print_binary_as_bson (input);
+         mongocrypt_ctx_mongo_feed (ctx, input);
+         mongocrypt_binary_destroy (input);
+         bson_free (data);
+         mongocrypt_ctx_mongo_done (ctx);
          break;
       case MONGOCRYPT_CTX_NEED_KMS:
          kms = mongocrypt_ctx_next_kms_ctx (ctx, output);
          printf ("\nlibmongocrypt wants to send the following to kms:\n");
          _print_binary_as_text (output);
          printf ("mocking reply from file\n");
+         input = _read_http ("./test/example/kms-reply.txt", &data);
          mongocrypt_kms_ctx_feed (kms, input);
+         mongocrypt_binary_destroy (input);
+         bson_free (data);
          assert (mongocrypt_kms_ctx_bytes_needed (kms) == 0);
          mongocrypt_ctx_kms_ctx_done (ctx, kms);
          break;
@@ -186,14 +205,10 @@ main ()
          break;
       }
       input_idx++;
-      mongocrypt_binary_destroy (input);
+      mongocrypt_binary_destroy (output);
       state = mongocrypt_ctx_state (ctx);
    }
 
-   for (input_idx = 0; input_idx < sizeof (input_data) / sizeof (*input_data);
-        input_idx++) {
-      bson_free (input_data[input_idx]);
-   }
    mongocrypt_status_destroy (status);
    mongocrypt_ctx_destroy (ctx);
    mongocrypt_destroy (crypt);
