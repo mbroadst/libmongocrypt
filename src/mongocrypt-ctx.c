@@ -242,7 +242,7 @@ _mongocrypt_ctx_mongo_feed_markings_encrypt (mongocrypt_ctx_t *ctx,
 
    bson_iter_recurse (&iter, &iter);
    if (!_mongocrypt_traverse_binary_in_bson (
-          _collect_key_from_marking, (void *) ectx, 0, &iter, status)) {
+          _collect_key_from_marking, (void *) ectx, TRAVERSE_MATCH_MARKING, &iter, status)) {
       /* TODO: rebase on recent fixes for the first byte. */
       ectx->parent.state = MONGOCRYPT_CTX_ERROR;
       return false;
@@ -567,7 +567,7 @@ _mongocrypt_ctx_encrypt_finalize (mongocrypt_ctx_t *ctx,
    bson_init (&converted);
    if (!_mongocrypt_transform_binary_in_bson (_replace_marking_with_ciphertext,
                                               &ctx->kb,
-                                              0,
+                                              TRAVERSE_MATCH_MARKING,
                                               &iter,
                                               &converted,
                                               status)) {
@@ -697,6 +697,7 @@ _parse_ciphertext_unowned (
    }
    ciphertext->blob_subtype = in->data[0];
    offset += 1;
+   /* TODO: merge new changes. */
    if (ciphertext->blob_subtype != 1 && ciphertext->blob_subtype != 2) {
       CLIENT_ERR ("malformed ciphertext, expected blob subtype of 1 or 2");
       return false;
@@ -822,7 +823,7 @@ _mongocrypt_ctx_decrypt_finalize (mongocrypt_ctx_t *ctx, mongocrypt_binary_t *ou
    bson_iter_init (&iter, &as_bson);
    bson_init (&final);
    res = _mongocrypt_transform_binary_in_bson (
-      _replace_ciphertext_with_plaintext, dctx, 1, &iter, &final, status);
+      _replace_ciphertext_with_plaintext, dctx, TRAVERSE_MATCH_CIPHERTEXT, &iter, &final, status);
    if (!res) {
       dctx->parent.state = MONGOCRYPT_CTX_ERROR;
       return false;
@@ -830,6 +831,7 @@ _mongocrypt_ctx_decrypt_finalize (mongocrypt_ctx_t *ctx, mongocrypt_binary_t *ou
    _mongocrypt_buffer_steal_from_bson (&dctx->decrypted_doc, &final);
    out->data = dctx->decrypted_doc.data;
    out->len = dctx->decrypted_doc.len;
+   ctx->state = MONGOCRYPT_CTX_DONE;
    return true;
 }
 
@@ -859,7 +861,7 @@ mongocrypt_ctx_decrypt_init (mongocrypt_ctx_t *ctx, mongocrypt_binary_t *doc)
    bson_iter_init (&iter, &as_bson);
    if (!_mongocrypt_traverse_binary_in_bson (_collect_key_from_ciphertext,
                                              dctx,
-                                             0,
+                                             TRAVERSE_MATCH_CIPHERTEXT,
                                              &iter,
                                              dctx->parent.status)) {
       ctx->state = MONGOCRYPT_CTX_ERROR;

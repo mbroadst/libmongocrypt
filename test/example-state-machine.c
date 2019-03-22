@@ -21,8 +21,8 @@
 #include <bson/bson.h>
 #include <mongocrypt.h>
 
-static mongocrypt_binary_t*
-_read_json (const char *path, uint8_t** data)
+static mongocrypt_binary_t *
+_read_json (const char *path, uint8_t **data)
 {
    bson_error_t error;
    bson_json_reader_t *reader;
@@ -110,32 +110,22 @@ _print_binary_as_text (mongocrypt_binary_t *binary)
    printf ("\n");
 }
 
-int
-main ()
+
+static void
+_run_state_machine (mongocrypt_ctx_t *ctx)
 {
-   mongocrypt_t *crypt;
-   mongocrypt_ctx_t *ctx;
    mongocrypt_binary_t *input, *output;
-   uint8_t *data;
-   int input_idx;
    mongocrypt_kms_ctx_t *kms;
    mongocrypt_ctx_state_t state;
    mongocrypt_status_t *status;
-   bool done = false;
+   uint8_t *data;
+   bool done;
 
-   crypt = mongocrypt_new (NULL);
-   ctx = mongocrypt_ctx_new (crypt);
-
-   input = _read_json ("./test/example/command.json", &data);
-   mongocrypt_ctx_encrypt_init (ctx, "test.test", 9, input);
-   mongocrypt_binary_destroy (input);
-   bson_free (data);
+   done = false;
+   output = mongocrypt_binary_new ();
    status = mongocrypt_status_new ();
-   input_idx = 0;
-   state = mongocrypt_ctx_state (ctx);
-
    while (!done) {
-      output = mongocrypt_binary_new ();
+      state = mongocrypt_ctx_state (ctx);
 
       switch (state) {
       case MONGOCRYPT_CTX_NEED_MONGO_COLLINFO:
@@ -143,7 +133,7 @@ main ()
          printf ("running listCollections on mongod with this filter:\n");
          _print_binary_as_bson (output);
          printf ("mocking reply from file:\n");
-         input = _read_json("./test/example/collection-info.json", &data);
+         input = _read_json ("./test/example/collection-info.json", &data);
          _print_binary_as_bson (input);
          mongocrypt_ctx_mongo_feed (ctx, input);
          mongocrypt_binary_destroy (input);
@@ -176,7 +166,7 @@ main ()
          break;
       case MONGOCRYPT_CTX_NEED_KMS:
          kms = mongocrypt_ctx_next_kms_ctx (ctx, output);
-         printf ("\nlibmongocrypt wants to send the following to kms:\n");
+         printf ("\nsending the following to kms:\n");
          _print_binary_as_text (output);
          printf ("mocking reply from file\n");
          input = _read_http ("./test/example/kms-reply.txt", &data);
@@ -188,14 +178,14 @@ main ()
          break;
       case MONGOCRYPT_CTX_READY:
          mongocrypt_ctx_finalize (ctx, output);
-         printf ("\nencrypted command is:");
+         printf ("\nfinal bson is:");
          _print_binary_as_bson (output);
          break;
       case MONGOCRYPT_CTX_DONE:
          done = true;
          break;
       case MONGOCRYPT_CTX_NOTHING_TO_DO:
-         printf ("no encryption was needed\n");
+         printf ("nothing to do\n");
          done = true;
          break;
       case MONGOCRYPT_CTX_ERROR:
@@ -204,12 +194,38 @@ main ()
          done = true;
          break;
       }
-      input_idx++;
-      mongocrypt_binary_destroy (output);
-      state = mongocrypt_ctx_state (ctx);
    }
-
+   mongocrypt_binary_destroy (output);
    mongocrypt_status_destroy (status);
+}
+
+
+int
+main ()
+{
+   mongocrypt_t *crypt;
+   mongocrypt_ctx_t *ctx;
+   mongocrypt_binary_t *input;
+   uint8_t *data;
+
+   printf("******* ENCRYPTION *******\n\n");
+   crypt = mongocrypt_new (NULL);
+   ctx = mongocrypt_ctx_new (crypt);
+   input = _read_json ("./test/example/command.json", &data);
+   mongocrypt_ctx_encrypt_init (ctx, "test.test", 9, input);
+   mongocrypt_binary_destroy (input);
+   bson_free (data);
+   _run_state_machine (ctx);
    mongocrypt_ctx_destroy (ctx);
+
+   printf("\n******* DECRYPTION *******\n\n");
+   ctx = mongocrypt_ctx_new (crypt);
+   input = _read_json ("./test/example/encrypted-document.json", &data);
+   mongocrypt_ctx_decrypt_init (ctx, input);
+   mongocrypt_binary_destroy (input);
+   bson_free (data);
+   _run_state_machine (ctx);
+   mongocrypt_ctx_destroy (ctx);
+
    mongocrypt_destroy (crypt);
 }
