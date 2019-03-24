@@ -20,14 +20,7 @@ option (ENABLE_TRACE "Enable verbose trace logs. Requires MONGOCRYPT_TRACE envir
 
 set (MONGOCRYPT_PUBLIC_HEADERS
    src/mongocrypt.h
-   src/mongocrypt-binary.h
    src/mongocrypt-compat.h
-   src/mongocrypt-decryptor.h
-   src/mongocrypt-encryptor.h
-   src/mongocrypt-key-broker.h
-   src/mongocrypt-key-decryptor.h
-   src/mongocrypt-opts.h
-   src/mongocrypt-status.h
 )
 
 message ("Found libbson, configuring to add real libmongocrypt target")
@@ -42,8 +35,6 @@ set (MONGOCRYPT_SOURCES
    src/mongocrypt-commoncrypto.c
    src/mongocrypt-crypto.c
    src/mongocrypt-ctx.c
-   src/mongocrypt-decryptor.c
-   src/mongocrypt-encryptor.c
    src/mongocrypt-key-broker.c
    src/mongocrypt-key-decryptor.c
    src/mongocrypt-key-cache.c

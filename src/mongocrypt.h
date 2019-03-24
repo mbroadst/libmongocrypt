@@ -231,15 +231,6 @@ mongocrypt_destroy (mongocrypt_t *crypt);
 
 
 /**
- * Returns true if libmongocrypt knows it can skip checking for
- * encryption or decryption for a collection.
- */
-MONGOCRYPT_EXPORT
-bool
-mongocrypt_can_skip (mongocrypt_t *crypt, char *ns, uint32_t ns_len);
-
-
-/**
  * Manages the state machine for encryption or decryption.
  */
 typedef struct _mongocrypt_ctx_t mongocrypt_ctx_t;
@@ -329,8 +320,19 @@ typedef struct _mongocrypt_kms_ctx_t mongocrypt_kms_ctx_t;
 
 
 /**
- * Get the next KMS handle. Driver may use grab multiple concurrent handles to
- * fan-out KMS HTTP messages.
+ * Get the next KMS handle.
+ * 
+ * Multiple KMS handles may be retrieved at once. Drivers may do this to fan
+ * out multiple concurrent KMS HTTP requests. Feeding multiple KMS requests
+ * is thread-safe.
+ * 
+ * Is KMS handles are being handled synchronously, the driver can reuse the same
+ * TLS socket to send HTTP requests and receive responses. 
+ * 
+ * @param[in] ctx A @ref mongocrypt_ctx_t.
+ * @param[out] msg The HTTP request to send to KMS.
+ * @pre @p ctx is in the state MONGOCRYPT_CTX_NEED_KMS.
+ * @returns a new @ref mongocrypt_kms_ctx_t or NULL.
  */
 MONGOCRYPT_EXPORT
 mongocrypt_kms_ctx_t *
@@ -342,6 +344,9 @@ uint32_t
 mongocrypt_kms_ctx_bytes_needed (mongocrypt_kms_ctx_t *kms);
 
 
+/* Feeding more bytes than what has been returned in @ref mongocrypt_kms_ctx_bytes_needed is an error.
+ * On error, a KMS error status is set. For drivers fanning out, wait until after calling @ref mongocrypt_ctx_kms_done to throw.
+ * That will set an error status on mongocrypt_ctx with a combined status of all kms contexts */
 MONGOCRYPT_EXPORT
 bool
 mongocrypt_kms_ctx_feed (mongocrypt_kms_ctx_t *kms, mongocrypt_binary_t *data);
@@ -353,16 +358,34 @@ mongocrypt_kms_ctx_status (mongocrypt_kms_ctx_t *kms,
                            mongocrypt_status_t *status);
 
 
+/* Call this when you're done with all kms requests. */
 MONGOCRYPT_EXPORT
 bool
-mongocrypt_ctx_kms_ctx_done (mongocrypt_ctx_t *ctx, mongocrypt_kms_ctx_t *kms);
+mongocrypt_ctx_kms_done (mongocrypt_ctx_t *ctx);
 
 
+/**
+ * Perform the final encryption or decryption.
+ * 
+ * @param[in] ctx A @ref mongocrypt_ctx_t.
+ * @param[out] out The final BSON to send to the server.
+ * 
+ * @pre @p ctx is in the state MONGOCRYPT_CTX_READY.
+ * @post ctx transitions to MONGOCRYPT_CTX_DONE or MONGOCRYPT_CTX_ERROR.
+ * 
+ * @returns a bool indicating success. On failure, a status is set and
+ * the state MONGOCRYPT_CTX_ERROR.
+ */
 MONGOCRYPT_EXPORT
 bool
 mongocrypt_ctx_finalize (mongocrypt_ctx_t *ctx, mongocrypt_binary_t *out);
 
 
+/**
+ * Destroy and free all memory associated with a @ref mongocrypt_ctx_t.
+ * 
+ * @param[in] ctx A @ref mongocrypt_ctx_t.
+ */
 MONGOCRYPT_EXPORT
 void
 mongocrypt_ctx_destroy (mongocrypt_ctx_t *ctx);
