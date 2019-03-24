@@ -31,7 +31,7 @@ void
 _mongocrypt_kms_ctx_init (mongocrypt_key_decryptor_t *kms,
                           _mongocrypt_buffer_t *key_material,
                           _kms_request_type_t request_type,
-                          mongocrypt_binary_t *msg)
+                          void *ctx)
 {
    kms_request_opt_t *opt;
 
@@ -67,7 +67,7 @@ _mongocrypt_kms_ctx_init (mongocrypt_key_decryptor_t *kms,
 }
 
 
-int
+uint32_t
 mongocrypt_kms_ctx_bytes_needed (mongocrypt_kms_ctx_t *kms)
 {
    if (!mongocrypt_status_ok (kms->status)) {
@@ -146,10 +146,31 @@ mongocrypt_kms_ctx_feed (mongocrypt_kms_ctx_t *kms, mongocrypt_binary_t *bytes)
 
 
 bool
+_mongocrypt_kms_ctx_result (mongocrypt_kms_ctx_t *kms, _mongocrypt_buffer_t* out) {
+   mongocrypt_status_t *status;
+
+   status = kms->status;
+   if (!mongocrypt_status_ok (status)) {
+      return false;
+   }
+
+   if (mongocrypt_kms_ctx_bytes_needed (kms) > 0) {
+      CLIENT_ERR ("KMS response unfinished");
+      return false;
+   }
+
+   _mongocrypt_buffer_init (out);
+   out->data = kms->result.data;
+   out->len = kms->result.len;
+   return true;
+}
+
+
+bool
 mongocrypt_kms_ctx_status (mongocrypt_kms_ctx_t *kms,
                            mongocrypt_status_t *status)
 {
-   _mongocrypt_status_copy_to (kd->status, status);
+   _mongocrypt_status_copy_to (kms->status, status);
    return mongocrypt_status_ok (status);
 }
 

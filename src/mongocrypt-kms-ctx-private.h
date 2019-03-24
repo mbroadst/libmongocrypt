@@ -39,7 +39,7 @@ void
 _mongocrypt_kms_ctx_init (mongocrypt_kms_ctx_t *kms,
                           _mongocrypt_buffer_t *key_material,
                           _kms_request_type_t request_type,
-                          mongocrypt_binary_t* msg);
+                          void *ctx);
 
 
 bool

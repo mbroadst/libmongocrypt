@@ -29,18 +29,55 @@ struct __mongocrypt_key_broker_entry_t {
    _mongocrypt_key_state_t state;
    _mongocrypt_buffer_t key_id;
    _mongocrypt_key_t key_returned;
-   mongocrypt_key_decryptor_t key_decryptor;
+   mongocrypt_kms_ctx_t kms;
    _mongocrypt_buffer_t decrypted_key_material;
    struct __mongocrypt_key_broker_entry_t *next;
 };
 
 
 void
-_mongocrypt_key_broker_init (mongocrypt_key_broker_t *kb)
+_mongocrypt_key_broker_init (mongocrypt_key_broker_t *kb,
+                             bool err_on_missing_keys)
 {
    memset (kb, 0, sizeof (*kb));
+   kb->err_on_missing_keys = err_on_missing_keys; /* TODO: use this. */
    kb->all_keys_added = false;
    kb->status = mongocrypt_status_new ();
+}
+
+
+bool
+_mongocrypt_key_broker_filter (mongocrypt_key_broker_t *kb, bson_t *out)
+{
+   _mongocrypt_key_broker_entry_t *iter;
+   int i = 0;
+   bson_t _id, _id_in;
+
+   BSON_ASSERT (kb);
+
+   bson_init (out);
+   bson_append_document_begin (out, "_id", 3, &_id);
+   bson_append_array_begin (&_id, "$in", 3, &_id_in);
+
+   for (iter = kb->kb_entry; iter != NULL; iter = iter->next) {
+      char *key_str;
+
+      if (iter->state != KEY_EMPTY) {
+         continue;
+      }
+
+      key_str = bson_strdup_printf ("%d", i++);
+      _mongocrypt_buffer_append (
+         &iter->key_id, &_id_in, key_str, strlen (key_str));
+
+      bson_free (key_str);
+   }
+
+   bson_append_array_end (&_id, &_id_in);
+   bson_append_document_end (out, &_id);
+
+
+   return true;
 }
 
 
@@ -70,15 +107,15 @@ bool
 _mongocrypt_key_broker_add_id (mongocrypt_key_broker_t *kb,
                                const _mongocrypt_buffer_t *key_id)
 {
-   _mongocrypt_key_broker_entry_t *kbi;
+   _mongocrypt_key_broker_entry_t *kbe;
 
    /* TODO CDRIVER-2951 check if we have this key cached. */
-   kbi = bson_malloc0 (sizeof (*kbi));
-   _mongocrypt_buffer_copy_to (key_id, &kbi->key_id);
-   kbi->state = KEY_EMPTY;
-   kbi->next = kb->kb_entry;
-   kb->kb_entry = kbi;
-   kb->decryptor_iter = kbi;
+   kbe = bson_malloc0 (sizeof (*kbe));
+   _mongocrypt_buffer_copy_to (key_id, &kbe->key_id);
+   kbe->state = KEY_EMPTY;
+   kbe->next = kb->kb_entry;
+   kb->kb_entry = kbe;
+   kb->decryptor_iter = kbe;
    return true;
 }
 
@@ -90,7 +127,7 @@ _mongocrypt_key_broker_add_doc (mongocrypt_key_broker_t *kb,
    mongocrypt_status_t *status;
    bson_t doc_bson;
    _mongocrypt_key_t key;
-   _mongocrypt_key_broker_entry_t *kbi;
+   _mongocrypt_key_broker_entry_t *kbe;
 
    BSON_ASSERT (kb);
    status = kb->status;
@@ -104,15 +141,18 @@ _mongocrypt_key_broker_add_doc (mongocrypt_key_broker_t *kb,
    }
 
    /* find which _id/keyAltName this key doc matches. */
-   for (kbi = kb->kb_entry; kbi != NULL; kbi = kbi->next) {
+   for (kbe = kb->kb_entry; kbe != NULL; kbe = kbe->next) {
       /* TODO: support keyAltName. */
-      if (0 == _mongocrypt_buffer_cmp (&kbi->key_id, &key.id)) {
+      /* TODO: check key status. */
+      if (0 == _mongocrypt_buffer_cmp (&kbe->key_id, &key.id)) {
          /* take ownership of the key document. */
-         memcpy (&kbi->key_returned, &key, sizeof (key));
-         kbi->state = KEY_ENCRYPTED;
+         memcpy (&kbe->key_returned, &key, sizeof (key));
+         kbe->state = KEY_ENCRYPTED;
 
-         _mongocrypt_key_decryptor_init (
-            &kbi->key_decryptor, &kbi->key_returned.key_material, kbi);
+         _mongocrypt_kms_ctx_init (&kbe->kms,
+                                   &kbe->key_returned.key_material,
+                                   MONGOCRYPT_KMS_DECRYPT,
+                                   kbe);
          return true;
       }
    }
@@ -122,26 +162,43 @@ _mongocrypt_key_broker_add_doc (mongocrypt_key_broker_t *kb,
 }
 
 
-mongocrypt_key_decryptor_t *
-_mongocrypt_key_broker_next_decryptor (mongocrypt_key_broker_t *kb)
+bool
+_mongocrypt_key_broker_done_adding_docs (mongocrypt_key_broker_t *kb)
 {
-   _mongocrypt_key_broker_entry_t *kbi;
+   mongocrypt_status_t *status;
+
+   BSON_ASSERT (kb);
+   status = kb->status;
+
+   if (_mongocrypt_key_broker_has (kb, KEY_EMPTY)) {
+      /* TODO: not an error if err_on_missing == false. */
+      CLIENT_ERR ("client did not provide all keys");
+      return false;
+   }
+
+   kb->all_keys_added = true;
+
+   return true;
+}
+
+
+mongocrypt_kms_ctx_t *
+_mongocrypt_key_broker_next_kms (mongocrypt_key_broker_t *kb)
+{
+   _mongocrypt_key_broker_entry_t *kbe;
 
    BSON_ASSERT (kb);
 
-   if (_mongocrypt_key_broker_empty (kb)) {
-      return NULL;
+   kbe = kb->decryptor_iter;
+
+   while (kbe && kbe->state != KEY_ENCRYPTED) {
+      kbe = kbe->next;
    }
 
-   kbi = kb->decryptor_iter;
-
-   while (kbi && kbi->state != KEY_ENCRYPTED) {
-      kbi = kbi->next;
-   }
-
-   if (kbi) {
-      kb->decryptor_iter = kbi->next;
-      return &kbi->key_decryptor;
+   if (kbe) {
+      kbe->state = KEY_DECRYPTING;
+      kb->decryptor_iter = kbe->next;
+      return &kbe->kms;
    } else {
       kb->decryptor_iter = NULL;
       return NULL;
@@ -150,99 +207,53 @@ _mongocrypt_key_broker_next_decryptor (mongocrypt_key_broker_t *kb)
 
 
 bool
-_mongocrypt_key_broker_add_decrypted_key (mongocrypt_key_broker_t *kb,
-                                          mongocrypt_key_decryptor_t *kd)
+_mongocrypt_key_broker_kms_done (mongocrypt_key_broker_t *kb,
+                                 mongocrypt_kms_ctx_t *kms)
 {
-   int ret = false;
    mongocrypt_status_t *status;
-   _mongocrypt_key_broker_entry_t *kbi;
-   kms_response_t *kms_response = NULL;
-   const char *kms_body;
-   bson_json_reader_t *reader = NULL;
-   bson_error_t bson_error;
-   bson_t response_body = BSON_INITIALIZER;
-   bson_iter_t iter;
-   char *b64_str = NULL;
-   uint32_t b64_strlen;
+   _mongocrypt_key_broker_entry_t *kbe;
 
-   BSON_ASSERT (kb);
    status = kb->status;
-
-   /* TODO: this is for testing, BSON_ASSERT (kd) */
-   if (!kd) {
-      bson_destroy (&response_body);
-      return true;
+   for (kbe = kb->kb_entry; kbe != NULL; kbe = kbe->next) {
+      if (kbe->state != KEY_DECRYPTING) {
+         /* TODO: don't error based on err_on_missing flag. */
+         CLIENT_ERR ("key not decrypted");
+         return false;
+      }
+      
+      if (!_mongocrypt_kms_ctx_result (&kbe->kms, out)) {
+         /* Always fatal. Key attempted to decrypt but failed. */
+         mongocrypt_kms_ctx_status (kms, status);
+         return false;
+      }
    }
-
-   kbi = (_mongocrypt_key_broker_entry_t *) kd->ctx;
-
-   if (kms_response_parser_wants_bytes (kd->parser, 1)) {
-      /* caller called too early. */
-      kbi->state = KEY_ERROR;
-      CLIENT_ERR ("Decryptor unfinished");
-      goto done;
-   }
-
-   kms_response = kms_response_parser_get_response (kd->parser);
-   kms_body = kms_response_get_body (kms_response);
-   reader = bson_json_data_reader_new (false, 1024);
-   /* TODO: extra strlen can be avoided by exposing length in kms-message. */
-   bson_json_data_reader_ingest (
-      reader, (const uint8_t *) kms_body, strlen (kms_body));
-
-   ret = bson_json_reader_read (reader, &response_body, &bson_error);
-   if (ret == -1) {
-      CLIENT_ERR ("Error reading KMS response: %s", bson_error.message);
-      goto done;
-   } else if (ret == 0) {
-      CLIENT_ERR ("Could not read JSON document from response");
-      goto done;
-   }
-
-   if (!bson_iter_init_find (&iter, &response_body, "Plaintext")) {
-      CLIENT_ERR ("KMS JSON response does not include Plaintext");
-      goto done;
-   }
-
-   b64_str = (char *) bson_iter_utf8 (&iter, &b64_strlen);
-
-   kbi->decrypted_key_material.data = bson_malloc (b64_strlen + 1);
-   kbi->decrypted_key_material.len = kms_message_b64_pton (
-      b64_str, kbi->decrypted_key_material.data, b64_strlen);
-   kbi->state = KEY_DECRYPTED;
-
-   /* TODO CDRIVER-2951 Add decrypted keys to the key cache */
-
-   ret = true;
-done:
-   bson_destroy (&response_body);
-   kms_response_destroy (kms_response);
-   bson_json_reader_destroy (reader);
-   return ret;
 }
 
 
-const _mongocrypt_buffer_t *
+bool
 _mongocrypt_key_broker_decrypted_key_material_by_id (
-   mongocrypt_key_broker_t *kb, _mongocrypt_buffer_t *key_id)
+   mongocrypt_key_broker_t *kb,
+   _mongocrypt_buffer_t *key_id,
+   _mongocrypt_buffer_t *out)
 {
    mongocrypt_status_t *status;
-   _mongocrypt_key_broker_entry_t *kbi;
+   _mongocrypt_key_broker_entry_t *kbe;
 
    BSON_ASSERT (kb);
    status = kb->status;
 
-   for (kbi = kb->kb_entry; kbi != NULL; kbi = kbi->next) {
-      if (0 == _mongocrypt_buffer_cmp (&kbi->key_id, key_id)) {
-         if (kbi->state != KEY_DECRYPTED) {
-            CLIENT_ERR ("key found, but material not decrypted");
-            return NULL;
-         }
-         return &kbi->decrypted_key_material;
+   for (kbe = kb->kb_entry; kbe != NULL; kbe = kbe->next) {
+      if (0 != _mongocrypt_buffer_cmp (&kbe->key_id, key_id)) {
+         continue;
       }
+      if (kbe->state != KEY_DECRYPTED) {
+         CLIENT_ERR ("key found, but material not decrypted");
+         return false;
+      }
+      return _mongocrypt_kms_ctx_result (&kbe->kms, out);
    }
    CLIENT_ERR ("no matching key found");
-   return NULL;
+   return false;
 }
 
 
@@ -255,8 +266,8 @@ mongocrypt_key_broker_get_key_filter (mongocrypt_key_broker_t *kb)
 
    BSON_ASSERT (kb);
 
-   if (!_mongocrypt_buffer_empty(&kb->filter)) {
-      return _mongocrypt_buffer_to_binary(&kb->filter);
+   if (!_mongocrypt_buffer_empty (&kb->filter)) {
+      return _mongocrypt_buffer_to_binary (&kb->filter);
    }
 
    bson_init (&filter);
@@ -271,7 +282,8 @@ mongocrypt_key_broker_get_key_filter (mongocrypt_key_broker_t *kb)
       }
 
       key_str = bson_strdup_printf ("%d", i++);
-      _mongocrypt_buffer_append (&iter->key_id, &_id_in, key_str, strlen (key_str));
+      _mongocrypt_buffer_append (
+         &iter->key_id, &_id_in, key_str, strlen (key_str));
 
       bson_free (key_str);
    }
@@ -281,112 +293,9 @@ mongocrypt_key_broker_get_key_filter (mongocrypt_key_broker_t *kb)
 
    kb->filter.data = bson_destroy_with_steal (&filter, true, &kb->filter.len);
 
-   return _mongocrypt_buffer_to_binary(&kb->filter);
+   return _mongocrypt_buffer_to_binary (&kb->filter);
 }
 
-bool
-_mongocrypt_key_broker_filter (mongocrypt_key_broker_t *kb, bson_t* out)
-{
-   _mongocrypt_key_broker_entry_t *iter;
-   int i = 0;
-   bson_t _id, _id_in;
-
-   BSON_ASSERT (kb);
-
-   bson_init (out);
-   bson_append_document_begin (out, "_id", 3, &_id);
-   bson_append_array_begin (&_id, "$in", 3, &_id_in);
-
-   for (iter = kb->kb_entry; iter != NULL; iter = iter->next) {
-      char *key_str;
-
-      if (iter->state != KEY_EMPTY) {
-         continue;
-      }
-
-      key_str = bson_strdup_printf ("%d", i++);
-      _mongocrypt_buffer_append (&iter->key_id, &_id_in, key_str, strlen (key_str));
-
-      bson_free (key_str);
-   }
-
-   bson_append_array_end (&_id, &_id_in);
-   bson_append_document_end (out, &_id);
-
-
-   return true;
-}
-
-bool
-mongocrypt_key_broker_add_key (mongocrypt_key_broker_t *kb,
-                               const mongocrypt_binary_t *key)
-{
-   _mongocrypt_buffer_t key_buf;
-   mongocrypt_status_t *status;
-
-   BSON_ASSERT (kb);
-   status = kb->status;
-
-   if (!key) {
-      CLIENT_ERR ("attempted to add a NULL key");
-      return false;
-   }
-
-   _mongocrypt_buffer_from_binary (&key_buf, key);
-
-   return _mongocrypt_key_broker_add_doc (kb, &key_buf);
-}
-
-bool
-mongocrypt_key_broker_done_adding_keys (mongocrypt_key_broker_t *kb)
-{
-   mongocrypt_status_t *status;
-
-   BSON_ASSERT (kb);
-   status = kb->status;
-
-   if (_mongocrypt_key_broker_has (kb, KEY_EMPTY)) {
-      CLIENT_ERR ("client did not provide all keys");
-      return false;
-   }
-
-   kb->all_keys_added = true;
-
-   return true;
-}
-
-mongocrypt_key_decryptor_t *
-mongocrypt_key_broker_next_decryptor (mongocrypt_key_broker_t *kb)
-{
-   mongocrypt_status_t *status;
-
-   BSON_ASSERT (kb);
-   status = kb->status;
-
-   if (!kb->all_keys_added) {
-      CLIENT_ERR ("client did not provide all keys");
-      return NULL;
-   }
-
-   return _mongocrypt_key_broker_next_decryptor (kb);
-}
-
-bool
-mongocrypt_key_broker_add_decrypted_key (
-   mongocrypt_key_broker_t *kb, mongocrypt_key_decryptor_t *key_decryptor)
-{
-   mongocrypt_status_t *status;
-
-   BSON_ASSERT (kb);
-   status = kb->status;
-
-   if (!kb->all_keys_added) {
-      CLIENT_ERR ("client did not provide all keys");
-      return false;
-   }
-
-   return _mongocrypt_key_broker_add_decrypted_key (kb, key_decryptor);
-}
 
 mongocrypt_status_t *
 mongocrypt_key_broker_status (mongocrypt_key_broker_t *kb)
@@ -399,22 +308,22 @@ mongocrypt_key_broker_status (mongocrypt_key_broker_t *kb)
 void
 _mongocrypt_key_broker_cleanup (mongocrypt_key_broker_t *kb)
 {
-   _mongocrypt_key_broker_entry_t *kbi, *tmp;
+   _mongocrypt_key_broker_entry_t *kbe, *tmp;
 
    if (!kb) {
       return;
    }
 
-   kbi = kb->kb_entry;
+   kbe = kb->kb_entry;
 
-   while (kbi) {
-      tmp = kbi->next;
-      mongocrypt_status_destroy (kbi->status);
-      _mongocrypt_buffer_cleanup (&kbi->key_id);
-      _mongocrypt_key_cleanup (&kbi->key_returned);
-      _mongocrypt_key_decryptor_cleanup (&kbi->key_decryptor);
-      _mongocrypt_buffer_cleanup (&kbi->decrypted_key_material);
-      kbi = tmp;
+   while (kbe) {
+      tmp = kbe->next;
+      mongocrypt_status_destroy (kbe->status);
+      _mongocrypt_buffer_cleanup (&kbe->key_id);
+      _mongocrypt_key_cleanup (&kbe->key_returned);
+      _mongocrypt_key_decryptor_cleanup (&kbe->key_decryptor);
+      _mongocrypt_buffer_cleanup (&kbe->decrypted_key_material);
+      kbe = tmp;
    }
 
    kb->kb_entry = NULL;

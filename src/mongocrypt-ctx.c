@@ -399,30 +399,13 @@ mongocrypt_ctx_next_kms_ctx (mongocrypt_ctx_t *ctx, mongocrypt_binary_t *msg)
 
 
 bool
-mongocrypt_kms_ctx_feed (mongocrypt_kms_ctx_t *kms, mongocrypt_binary_t *data)
+mongocrypt_ctx_kms_done (mongocrypt_ctx_t *ctx)
 {
-   mongocrypt_key_decryptor_t *kd;
-
-   kd = (mongocrypt_key_decryptor_t *) kms;
-   return mongocrypt_key_decryptor_feed (kd, data);
-}
-
-
-uint32_t
-mongocrypt_kms_ctx_bytes_needed (mongocrypt_kms_ctx_t *kms)
-{
-   return mongocrypt_key_decryptor_bytes_needed (
-      (mongocrypt_key_decryptor_t *) kms, 1024);
-}
-
-
-bool
-mongocrypt_ctx_kms_ctx_done (mongocrypt_ctx_t *ctx, mongocrypt_kms_ctx_t *kms)
-{
-   /* TODO: check if this is the last remaining open kms request */
-   ctx->state = MONGOCRYPT_CTX_READY;
-   _mongocrypt_key_broker_add_decrypted_key (
-      &ctx->kb, (mongocrypt_key_decryptor_t *) kms);
+   if (!_mongocrypt_key_broker_done_adding_keys (ctx->kb)) {
+      _mongocrypt_key_broker_status (kb, ctx->status);
+      ctx->state = MONGOCRYPT_CTX_ERROR;
+      return false;
+   }
    return true;
 }
 
