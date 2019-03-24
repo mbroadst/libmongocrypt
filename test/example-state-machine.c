@@ -174,7 +174,7 @@ _run_state_machine (mongocrypt_ctx_t *ctx)
          mongocrypt_binary_destroy (input);
          bson_free (data);
          assert (mongocrypt_kms_ctx_bytes_needed (kms) == 0);
-         mongocrypt_ctx_kms_ctx_done (ctx, kms);
+         mongocrypt_ctx_kms_done (ctx);
          break;
       case MONGOCRYPT_CTX_READY:
          mongocrypt_ctx_finalize (ctx, output);

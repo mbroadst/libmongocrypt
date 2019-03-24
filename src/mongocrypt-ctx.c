@@ -104,7 +104,7 @@ mongocrypt_ctx_new (mongocrypt_t *crypt)
    }
    ctx = bson_malloc0 (ctx_size);
    ctx->crypt = crypt;
-   _mongocrypt_key_broker_init (&ctx->kb);
+   _mongocrypt_key_broker_init (&ctx->kb, true); /* TODO: do this in sub contexts. */
    ctx->status = mongocrypt_status_new ();
    return ctx;
 }
@@ -183,14 +183,12 @@ _mongocrypt_ctx_mongo_op_markings_encrypt (mongocrypt_ctx_t *ctx,
 
 
 static bool
-_collect_key_from_marking (void *ctx, _mongocrypt_buffer_t *in)
+_collect_key_from_marking (void *ctx, _mongocrypt_buffer_t *in, mongocrypt_status_t* status)
 {
-   mongocrypt_status_t *status;
    _mongocrypt_marking_t marking = {0};
    _mongocrypt_ctx_encrypt_t *ectx;
 
    ectx = (_mongocrypt_ctx_encrypt_t *) ctx;
-   status = ectx->parent.status;
 
    if (!_mongocrypt_marking_parse_unowned (in, &marking, status)) {
       return false;
@@ -204,7 +202,7 @@ _collect_key_from_marking (void *ctx, _mongocrypt_buffer_t *in)
    }
 
    if (!_mongocrypt_key_broker_add_id (&ectx->parent.kb, &marking.key_id)) {
-      mongocrypt_status_copy_to (ectx->parent.kb.status, ectx->parent.status);
+      mongocrypt_status_copy_to (ectx->parent.kb.status, status);
       return false;
    }
    return true;
@@ -269,11 +267,7 @@ bool
 _mongocrypt_ctx_mongo_op_keys (mongocrypt_ctx_t *ctx, mongocrypt_binary_t *out)
 {
    /* Construct the find filter to fetch keys. */
-   bson_t filter;
-
-   _mongocrypt_key_broker_filter (&ctx->kb, &filter);
-   out->data = bson_destroy_with_steal (&filter, true, &out->len);
-   return true;
+   return _mongocrypt_key_broker_filter (&ctx->kb, out);
 }
 
 
@@ -285,9 +279,6 @@ _mongocrypt_ctx_mongo_feed_keys (mongocrypt_ctx_t *ctx, mongocrypt_binary_t *in)
    _mongocrypt_buffer_from_binary (&buf, in);
    _mongocrypt_key_broker_add_doc (&ctx->kb, &buf);
 
-   /* TODO: currently this just takes the first key. Fix this to handle multiple
-    * keys. */
-   mongocrypt_key_broker_done_adding_keys (&ctx->kb);
    return true;
 }
 
@@ -297,7 +288,7 @@ _mongocrypt_ctx_mongo_done_keys (mongocrypt_ctx_t *ctx)
 {
    /* TODO: fail the ctx. Make a generic fail_w_status. */
    ctx->state = MONGOCRYPT_CTX_NEED_KMS;
-   return mongocrypt_key_broker_done_adding_keys (&ctx->kb);
+   return _mongocrypt_key_broker_done_adding_docs (&ctx->kb);
 }
 
 
@@ -386,26 +377,28 @@ mongocrypt_ctx_state (mongocrypt_ctx_t *ctx)
 mongocrypt_kms_ctx_t *
 mongocrypt_ctx_next_kms_ctx (mongocrypt_ctx_t *ctx, mongocrypt_binary_t *msg)
 {
-   mongocrypt_key_decryptor_t *kd;
-   mongocrypt_binary_t *tmp;
+   mongocrypt_kms_ctx_t *kms;
 
-   kd = mongocrypt_key_broker_next_decryptor (&ctx->kb);
-   tmp = mongocrypt_key_decryptor_msg (kd);
-   msg->data = tmp->data;
-   msg->len = tmp->len;
-   mongocrypt_binary_destroy (tmp);
-   return (mongocrypt_kms_ctx_t *) kd;
+   kms = _mongocrypt_key_broker_next_kms (&ctx->kb);
+   if (!kms) {
+      return NULL;
+   }
+   /* TODO: don't reach into kms struct? */
+   msg->data = kms->msg.data;
+   msg->len = kms->msg.len;
+   return (mongocrypt_kms_ctx_t *) kms;
 }
 
 
 bool
 mongocrypt_ctx_kms_done (mongocrypt_ctx_t *ctx)
 {
-   if (!_mongocrypt_key_broker_done_adding_keys (ctx->kb)) {
-      _mongocrypt_key_broker_status (kb, ctx->status);
+   if (!_mongocrypt_key_broker_kms_done (&ctx->kb)) {
+      _mongocrypt_key_broker_status (&ctx->kb, ctx->status);
       ctx->state = MONGOCRYPT_CTX_ERROR;
       return false;
    }
+   ctx->state = MONGOCRYPT_CTX_READY;
    return true;
 }
 
@@ -451,16 +444,16 @@ _serialize_ciphertext (_mongocrypt_ciphertext_t *ciphertext,
 static bool
 _replace_marking_with_ciphertext (void *ctx,
                                   _mongocrypt_buffer_t *in,
-                                  bson_value_t *out)
+                                  bson_value_t *out,
+                                  mongocrypt_status_t* status)
 {
-   mongocrypt_status_t *status;
    _mongocrypt_marking_t marking = {0};
-   _mongocrypt_ciphertext_t ciphertext = {0};
+   _mongocrypt_ciphertext_t ciphertext = {{0}};
    _mongocrypt_buffer_t serialized_ciphertext = {0};
    _mongocrypt_buffer_t plaintext = {0};
    mongocrypt_key_broker_t *kb;
    bson_t wrapper = BSON_INITIALIZER;
-   const _mongocrypt_buffer_t *key_material;
+   _mongocrypt_buffer_t key_material;
    bool ret = false;
    uint32_t bytes_written;
 
@@ -468,7 +461,6 @@ _replace_marking_with_ciphertext (void *ctx,
    BSON_ASSERT (in);
    BSON_ASSERT (out);
    kb = (mongocrypt_key_broker_t *) ctx;
-   status = kb->status;
 
    if (!_mongocrypt_marking_parse_unowned (in, &marking, status)) {
       goto fail;
@@ -483,9 +475,7 @@ _replace_marking_with_ciphertext (void *ctx,
    ciphertext.original_bson_type = (uint8_t) bson_iter_type (&marking.v_iter);
 
    /* get the key for this marking. */
-   key_material =
-      _mongocrypt_key_broker_decrypted_key_material_by_id (kb, &marking.key_id);
-   if (!key_material) {
+   if (!_mongocrypt_key_broker_decrypted_key_material_by_id (kb, &marking.key_id, &key_material)) {
       mongocrypt_status_copy_to (kb->status, status);
       goto fail;
    }
@@ -502,7 +492,7 @@ _replace_marking_with_ciphertext (void *ctx,
    ciphertext.data.owned = true;
    ret = _mongocrypt_do_encryption (&marking.iv,
                                     NULL,
-                                    key_material,
+                                    &key_material,
                                     &plaintext,
                                     &ciphertext.data,
                                     &bytes_written,
@@ -698,7 +688,7 @@ _parse_ciphertext_unowned (_mongocrypt_buffer_t *in,
 
 
 static bool
-_collect_key_from_ciphertext (void *ctx, _mongocrypt_buffer_t *in)
+_collect_key_from_ciphertext (void *ctx, _mongocrypt_buffer_t *in, mongocrypt_status_t* status)
 {
    _mongocrypt_ciphertext_t ciphertext;
    _mongocrypt_ctx_decrypt_t *dctx;
@@ -708,13 +698,12 @@ _collect_key_from_ciphertext (void *ctx, _mongocrypt_buffer_t *in)
 
    dctx = (_mongocrypt_ctx_decrypt_t *) ctx;
 
-   if (!_parse_ciphertext_unowned (in, &ciphertext, dctx->parent.status)) {
+   if (!_parse_ciphertext_unowned (in, &ciphertext, status)) {
       return false;
    }
 
    if (!_mongocrypt_key_broker_add_id (&dctx->parent.kb, &ciphertext.key_id)) {
-      /* TODO: copy status. */
-      return false;
+      return _mongocrypt_key_broker_status (&dctx->parent.kb, status);
    }
 
    return true;
@@ -724,12 +713,12 @@ _collect_key_from_ciphertext (void *ctx, _mongocrypt_buffer_t *in)
 static bool
 _replace_ciphertext_with_plaintext (void *ctx,
                                     _mongocrypt_buffer_t *in,
-                                    bson_value_t *out)
+                                    bson_value_t *out, mongocrypt_status_t* status)
 {
    _mongocrypt_ctx_decrypt_t *dctx;
    _mongocrypt_ciphertext_t ciphertext;
    _mongocrypt_buffer_t plaintext = {0};
-   const _mongocrypt_buffer_t *key_material;
+   _mongocrypt_buffer_t key_material;
    bson_t wrapper;
    bson_iter_t iter;
    uint32_t bytes_written;
@@ -741,19 +730,17 @@ _replace_ciphertext_with_plaintext (void *ctx,
 
    dctx = (_mongocrypt_ctx_decrypt_t *) ctx;
 
-   if (!_parse_ciphertext_unowned (in, &ciphertext, dctx->parent.status)) {
+   if (!_parse_ciphertext_unowned (in, &ciphertext, status)) {
       goto fail;
    }
 
    /* look up the key */
-   key_material = _mongocrypt_key_broker_decrypted_key_material_by_id (
-      &dctx->parent.kb, &ciphertext.key_id);
-   if (!key_material) {
+   if (!_mongocrypt_key_broker_decrypted_key_material_by_id (
+      &dctx->parent.kb, &ciphertext.key_id, &key_material)) {
       /* We allow partial decryption, so this is not an error. */
       _mongocrypt_log (&dctx->parent.crypt->log,
                        MONGOCRYPT_LOG_LEVEL_WARNING,
                        "Missing key, skipping decryption for this ciphertext");
-      mongocrypt_status_reset (dctx->parent.kb.status);
       ret = true;
       goto fail;
    }
@@ -763,11 +750,11 @@ _replace_ciphertext_with_plaintext (void *ctx,
    plaintext.owned = true;
 
    if (!_mongocrypt_do_decryption (NULL,
-                                   key_material,
+                                   &key_material,
                                    &ciphertext.data,
                                    &plaintext,
                                    &bytes_written,
-                                   dctx->parent.status)) {
+                                   status)) {
       goto fail;
    }
 

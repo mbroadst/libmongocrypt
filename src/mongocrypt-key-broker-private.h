@@ -40,12 +40,13 @@ typedef struct _mongocrypt_key_broker_t mongocrypt_key_broker_t;
 
 /* The state of the key item in the broker. */
 typedef enum {
-   KEY_EMPTY,     /* has an id/keyAltName, but nothing else. */
-   KEY_ENCRYPTED, /* has the key document from the key vault, with encrypted
-                     keyMaterial */
-   KEY_DECRYPTING, /* caller has iterated the kms context, but not fed everything yet. */
-   KEY_DECRYPTED, /* has decrypted keyMaterial. */
-   KEY_ERROR      /* unable to get this key. status is set. */
+   KEY_EMPTY,      /* has an id/keyAltName, but nothing else. */
+   KEY_ENCRYPTED,  /* has the key document from the key vault, with encrypted
+                      keyMaterial */
+   KEY_DECRYPTING, /* caller has iterated the kms context, but not fed
+                      everything yet. */
+   KEY_DECRYPTED,  /* has decrypted keyMaterial. */
+   KEY_ERROR       /* unable to get this key. status is set. */
 } _mongocrypt_key_state_t;
 
 
@@ -66,11 +67,13 @@ struct _mongocrypt_key_broker_t {
 
 
 void
-_mongocrypt_key_broker_init (mongocrypt_key_broker_t *kb, bool err_on_missing_keys);
+_mongocrypt_key_broker_init (mongocrypt_key_broker_t *kb,
+                             bool err_on_missing_keys);
 
 
 bool
-_mongocrypt_key_broker_filter (mongocrypt_key_broker_t *kb, bson_t *out);
+_mongocrypt_key_broker_filter (mongocrypt_key_broker_t *kb,
+                               mongocrypt_binary_t *out);
 
 
 /* Returns true or false if the key broker has keys matching the passed state.
@@ -101,12 +104,11 @@ bool
 _mongocrypt_key_broker_done_adding_docs (mongocrypt_key_broker_t *kb);
 
 
-
 mongocrypt_kms_ctx_t *
 _mongocrypt_key_broker_next_kms (mongocrypt_key_broker_t *kb);
 
 
-mongocrypt_kms_ctx_t *
+bool
 _mongocrypt_key_broker_kms_done (mongocrypt_key_broker_t *kb);
 
 
@@ -118,7 +120,8 @@ _mongocrypt_key_broker_decrypted_key_material_by_id (
 
 
 bool
-_mongocrypt_key_broker_status (mongocrypt_key_broker_t *kb, mongocrypt_status_t *out);
+_mongocrypt_key_broker_status (mongocrypt_key_broker_t *kb,
+                               mongocrypt_status_t *out);
 
 
 void

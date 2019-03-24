@@ -98,12 +98,14 @@ _mongocrypt_ciphertext_parse_unowned (const bson_t *bson,
 typedef enum { TRAVERSE_MATCH_CIPHERTEXT, TRAVERSE_MATCH_MARKING} traversal_match_t;
 
 typedef bool (*_mongocrypt_traverse_callback_t) (void *ctx,
-                                                 _mongocrypt_buffer_t *in);
+                                                 _mongocrypt_buffer_t *in,
+                                                 mongocrypt_status_t* status);
 
 
 typedef bool (*_mongocrypt_transform_callback_t) (void *ctx,
                                                   _mongocrypt_buffer_t *in,
-                                                  bson_value_t *out);
+                                                  bson_value_t *out,
+                                                  mongocrypt_status_t* status);
 
 
 bool

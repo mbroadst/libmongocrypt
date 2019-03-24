@@ -36,7 +36,7 @@ set (MONGOCRYPT_SOURCES
    src/mongocrypt-crypto.c
    src/mongocrypt-ctx.c
    src/mongocrypt-key-broker.c
-   src/mongocrypt-key-decryptor.c
+   src/mongocrypt-kms-ctx.c
    src/mongocrypt-key-cache.c
    src/mongocrypt-log.c
    src/mongocrypt-openssl.c

@@ -18,10 +18,13 @@
 #define MONGOCRYPT_KMX_CTX_PRIVATE_H
 
 #include "mongocrypt.h"
+#include "mongocrypt-compat.h"
 #include "mongocrypt-buffer-private.h"
-#include "kms_message/kms_request.h"
+#include "kms_message/kms_message.h"
 
-typedef struct _mongocrypt_kms_ctx_t {
+typedef enum { MONGOCRYPT_KMS_ENCRYPT, MONGOCRYPT_KMS_DECRYPT } _kms_request_type_t;
+
+struct _mongocrypt_kms_ctx_t {
    kms_request_t *req;
    _kms_request_type_t req_type;
    kms_response_parser_t *parser;
@@ -29,10 +32,7 @@ typedef struct _mongocrypt_kms_ctx_t {
    _mongocrypt_buffer_t msg;
    void *ctx;
    _mongocrypt_buffer_t result;
-} mongocrypt_kms_ctx_t;
-
-
-typedef enum { MONGOCRYPT_KMS_ENCRYPT, MONGOCRYPT_KMS_DECRYPT } _kms_request_type_t;
+};
 
 
 void

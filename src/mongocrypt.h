@@ -348,12 +348,12 @@ mongocrypt_kms_ctx_bytes_needed (mongocrypt_kms_ctx_t *kms);
  * On error, a KMS error status is set. For drivers fanning out, wait until after calling @ref mongocrypt_ctx_kms_done to throw.
  * That will set an error status on mongocrypt_ctx with a combined status of all kms contexts */
 MONGOCRYPT_EXPORT
-bool
-mongocrypt_kms_ctx_feed (mongocrypt_kms_ctx_t *kms, mongocrypt_binary_t *data);
+int
+mongocrypt_kms_ctx_feed (mongocrypt_kms_ctx_t *kms, mongocrypt_binary_t *bytes);
 
 
 MONGOCRYPT_EXPORT
-bool
+int
 mongocrypt_kms_ctx_status (mongocrypt_kms_ctx_t *kms,
                            mongocrypt_status_t *status);
 
