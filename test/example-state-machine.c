@@ -130,9 +130,9 @@ _run_state_machine (mongocrypt_ctx_t *ctx)
       switch (state) {
       case MONGOCRYPT_CTX_NEED_MONGO_COLLINFO:
          mongocrypt_ctx_mongo_op (ctx, output);
-         printf ("running listCollections on mongod with this filter:\n");
+         printf ("\nrunning listCollections on mongod with this filter:\n");
          _print_binary_as_bson (output);
-         printf ("mocking reply from file:\n");
+         printf ("\nmocking reply from file:\n");
          input = _read_json ("./test/example/collection-info.json", &data);
          _print_binary_as_bson (input);
          mongocrypt_ctx_mongo_feed (ctx, input);
@@ -142,9 +142,9 @@ _run_state_machine (mongocrypt_ctx_t *ctx)
          break;
       case MONGOCRYPT_CTX_NEED_MONGO_MARKINGS:
          mongocrypt_ctx_mongo_op (ctx, output);
-         printf ("running cmd on mongocryptd with this schema:\n");
+         printf ("\nrunning cmd on mongocryptd with this schema:\n");
          _print_binary_as_bson (output);
-         printf ("mocking reply from file:\n");
+         printf ("\nmocking reply from file:\n");
          input = _read_json ("./test/example/mongocryptd-reply.json", &data);
          _print_binary_as_bson (input);
          mongocrypt_ctx_mongo_feed (ctx, input);
@@ -154,9 +154,9 @@ _run_state_machine (mongocrypt_ctx_t *ctx)
          break;
       case MONGOCRYPT_CTX_NEED_MONGO_KEYS:
          mongocrypt_ctx_mongo_op (ctx, output);
-         printf ("running a find on the key vault coll with this filter:\n");
+         printf ("\nrunning a find on the key vault coll with this filter:\n");
          _print_binary_as_bson (output);
-         printf ("mocking reply from file:\n");
+         printf ("\nmocking reply from file:\n");
          input = _read_json ("./test/example/key-document.json", &data);
          _print_binary_as_bson (input);
          mongocrypt_ctx_mongo_feed (ctx, input);
@@ -168,8 +168,9 @@ _run_state_machine (mongocrypt_ctx_t *ctx)
          kms = mongocrypt_ctx_next_kms_ctx (ctx, output);
          printf ("\nsending the following to kms:\n");
          _print_binary_as_text (output);
-         printf ("mocking reply from file\n");
+         printf ("\nmocking reply from file\n");
          input = _read_http ("./test/example/kms-reply.txt", &data);
+         _print_binary_as_text (input);
          mongocrypt_kms_ctx_feed (kms, input);
          mongocrypt_binary_destroy (input);
          bson_free (data);
@@ -185,12 +186,12 @@ _run_state_machine (mongocrypt_ctx_t *ctx)
          done = true;
          break;
       case MONGOCRYPT_CTX_NOTHING_TO_DO:
-         printf ("nothing to do\n");
+         printf ("\nnothing to do\n");
          done = true;
          break;
       case MONGOCRYPT_CTX_ERROR:
          mongocrypt_ctx_status (ctx, status);
-         printf ("got error: %s\n", mongocrypt_status_message (status));
+         printf ("\ngot error: %s\n", mongocrypt_status_message (status));
          done = true;
          break;
       }

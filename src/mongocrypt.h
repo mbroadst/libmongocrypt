@@ -38,10 +38,7 @@ mongocrypt_version (void);
  *
  * Functions returning a mongocrypt_binary_t* expect it to be destroyed with
  * mongocrypt_binary_destroy.
- *
- * Functions taking a mongocrypt_binary_t* argument may either copy or keep a
- * pointer to the data. See individual function documentation.
-*/
+ */
 typedef struct _mongocrypt_binary_t mongocrypt_binary_t;
 
 
@@ -60,11 +57,12 @@ mongocrypt_binary_new (void);
 /**
  * Create a new non-owning view of a buffer (data + length).
  *
- * @param data A pointer to an array of bytes. This is not copied. @data must
+ * @param[in] data A pointer to an array of bytes. This is not copied. @p data
+ * must
  * outlive the binary object.
- * @param len The length of the @data array.
+ * @param[in] len The length of the @p data byte array.
  *
- * @returns A new mongocrypt_binary_t.
+ * @returns A new @ref mongocrypt_binary_t.
  */
 MONGOCRYPT_EXPORT
 mongocrypt_binary_t *
@@ -74,7 +72,7 @@ mongocrypt_binary_new_from_data (uint8_t *data, uint32_t len);
 /**
  * Get a pointer to the referenced data.
  *
- * @param binary The mongocrypt_binary_t from which to retrieve the data.
+ * @param[in] binary The @ref mongocrypt_binary_t.
  *
  * @returns A pointer to the referenced data.
  */
@@ -86,7 +84,7 @@ mongocrypt_binary_data (const mongocrypt_binary_t *binary);
 /**
  * Get the length of the referenced data.
  *
- * @param binary The mongocrypt_binary_t from which to retrieve the length.
+ * @param[in] binary The @ref mongocrypt_binary_t.
  *
  * @returns The length of the referenced data.
  */
@@ -96,13 +94,13 @@ mongocrypt_binary_len (const mongocrypt_binary_t *binary);
 
 
 /**
- * Free the mongocrypt_binary_t.
+ * Free the @ref mongocrypt_binary_t.
  *
  * This does not free the referenced data. Refer to individual function
  * documentation to determine the lifetime guarantees of the underlying
  * data.
  *
- * @param binary The mongocrypt_binary_t destroy.
+ * @param[in] binary The mongocrypt_binary_t destroy.
  */
 MONGOCRYPT_EXPORT
 void
@@ -113,13 +111,9 @@ mongocrypt_binary_destroy (mongocrypt_binary_t *binary);
  * Indicates success or contains error information.
  *
  * Functions like @ref mongocrypt_ctx_encrypt_init follow a pattern to expose a
- * status.
- * A boolean is returned. True indicates success, and false indicates failure.
- * On failure
- * a status on the handle is set, and is accessible with a corresponding
- * <handle>_status
- * function. E.g. @ref mongocrypt_ctx_status.
- *
+ * status. A boolean is returned. True indicates success, and false indicates
+ * failure. On failure a status on the handle is set, and is accessible with a
+ * corresponding <handle>_status function. E.g. @ref mongocrypt_ctx_status.
  */
 typedef struct _mongocrypt_status_t mongocrypt_status_t;
 
