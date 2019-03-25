@@ -21,7 +21,7 @@
 #include "mongocrypt-export.h"
 #include "mongocrypt-compat.h"
 
-#define MONGOCRYPT_VERSION "0.3.0"
+#define MONGOCRYPT_VERSION "0.4.0"
 
 /**
  * Returns the version string x.y.z for libmongocrypt.
@@ -109,6 +109,18 @@ void
 mongocrypt_binary_destroy (mongocrypt_binary_t *binary);
 
 
+/**
+ * Indicates success or contains error information.
+ *
+ * Functions like @ref mongocrypt_ctx_encrypt_init follow a pattern to expose a
+ * status.
+ * A boolean is returned. True indicates success, and false indicates failure.
+ * On failure
+ * a status on the handle is set, and is accessible with a corresponding
+ * <handle>_status
+ * function. E.g. @ref mongocrypt_ctx_status.
+ *
+ */
 typedef struct _mongocrypt_status_t mongocrypt_status_t;
 
 
@@ -119,36 +131,81 @@ typedef enum {
 } mongocrypt_status_type_t;
 
 
+/**
+ * Create a new status object.
+ *
+ * Use a new status object to retrieve the status from a handle by passing
+ * this as an out-parameter to functions like @ref mongocrypt_ctx_status.
+ * When done, destroy it with @ref mongocrypt_status_destroy.
+ *
+ * @returns A new status object.
+ */
 MONGOCRYPT_EXPORT
 mongocrypt_status_t *
 mongocrypt_status_new (void);
 
 
+/**
+ * Indicates success or the type of error.
+ *
+ * @param[in] status The status object.
+ *
+ * @returns A @ref mongocrypt_status_type_t.
+ */
 MONGOCRYPT_EXPORT
 mongocrypt_status_type_t
 mongocrypt_status_type (mongocrypt_status_t *status);
 
 
+/**
+ * Get an error code or 0.
+ *
+ * @param[in] status The status object.
+ *
+ * @returns An error code.
+ */
 MONGOCRYPT_EXPORT
 uint32_t
 mongocrypt_status_code (mongocrypt_status_t *status);
 
 
+/**
+ * Get the error message associated with a status, or an empty string.
+ *
+ * @param[in] status The status object.
+ *
+ * @returns An error message or an empty string.
+ */
 MONGOCRYPT_EXPORT
 const char *
 mongocrypt_status_message (mongocrypt_status_t *status);
 
 
+/**
+ * Returns true if the status indicates success.
+ *
+ * @param[in] status The status to check.
+ *
+ * @returns A boolean indicating success.
+ */
 MONGOCRYPT_EXPORT
 bool
 mongocrypt_status_ok (mongocrypt_status_t *status);
 
 
+/**
+ * Free the memory for a status object.
+ *
+ * @param[in] status The status to destroy.
+ */
 MONGOCRYPT_EXPORT
 void
 mongocrypt_status_destroy (mongocrypt_status_t *status);
 
 
+/**
+ * Contains all options passed on initialization of a @ref mongocrypt_ctx_t.
+ */
 typedef struct _mongocrypt_opts_t mongocrypt_opts_t;
 
 
@@ -161,11 +218,32 @@ typedef enum {
 } mongocrypt_opt_t;
 
 
+/**
+ * Create a new options object.
+ *
+ * @returns A new @ref mongocrypt_opts_t object.
+ */
 MONGOCRYPT_EXPORT
 mongocrypt_opts_t *
 mongocrypt_opts_new (void);
 
 
+/**
+ * Set an option.
+ *
+ * @param[in] opts The options object.
+ * @param[in] opt The option to set.
+ * @param[in] value The type-erased option value.
+ *
+ * Options values depend on @p opt.
+ * - MONGOCRYPT_AWS_REGION expects a char *.
+ * - MONGOCRYPT_AWS_SECRET_ACCESS_KEY expects a char *.
+ * - MONGOCRYPT_AWS_ACCESS_KEY_ID expects a char *.
+ * - MONGOCRYPT_LOG_FN expects a @ref mongocrypt_log_fn_t.
+ * - MONGOCRYPT_LOG_CTX expects a void*.
+ *
+ * Passing the wrong type has dire consequences.
+ */
 MONGOCRYPT_EXPORT
 void
 mongocrypt_opts_set_opt (mongocrypt_opts_t *opts,
@@ -173,6 +251,11 @@ mongocrypt_opts_set_opt (mongocrypt_opts_t *opts,
                          void *value);
 
 
+/**
+ * Destroy an options object.
+ *
+ * @param[in] opts The options object to destroy.
+ */
 MONGOCRYPT_EXPORT
 void
 mongocrypt_opts_destroy (mongocrypt_opts_t *opts);
@@ -188,7 +271,8 @@ typedef enum {
 
 
 /**
- * A log callback function. Set a custom log callback in mongocrypt_new.
+ * A log callback function. Set a custom log callback with @ref
+ * mongocrypt_opts_set_opt.
  */
 typedef void (*mongocrypt_log_fn_t) (mongocrypt_log_level_t level,
                                      const char *message,
@@ -211,20 +295,35 @@ typedef struct _mongocrypt_t mongocrypt_t;
 
 
 /**
- * Create a new mongocrypt_t handle.
+ * Create a new @ref mongocrypt_t object.
  *
- * @returns A new mongocrypt_t handle.
+ * @param[in] opts An options object.
+ *
+ * @returns A new @ref mongocrypt_t object.
  */
 MONGOCRYPT_EXPORT
 mongocrypt_t *
-mongocrypt_new (const mongocrypt_opts_t *opts);
+mongocrypt_new (mongocrypt_opts_t *opts);
 
 
+/**
+ * Get the status associated with a @ref mongocrypt_t object.
+ *
+ * @param[in] crypt The @ref mongocrypt_t object.
+ * @param[out] status Receives the status.
+ *
+  * @returns A boolean indicating success.
+ */
 MONGOCRYPT_EXPORT
 bool
-mongocrypt_status (mongocrypt_t *crypt, mongocrypt_status_t *out);
+mongocrypt_status (mongocrypt_t *crypt, mongocrypt_status_t *status);
 
 
+/**
+ * Destroy the @ref mongocrypt_t object.
+ *
+ * @param[in] crypt The @ref mongocrypt_t object to destroy.
+ */
 MONGOCRYPT_EXPORT
 void
 mongocrypt_destroy (mongocrypt_t *crypt);
@@ -236,18 +335,40 @@ mongocrypt_destroy (mongocrypt_t *crypt);
 typedef struct _mongocrypt_ctx_t mongocrypt_ctx_t;
 
 
+/**
+ * Create a new uninitialized @ref mongocrypt_ctx_t.
+ *
+ * Initialize the context with functions like @ref mongocrypt_ctx_encrypt_init.
+ * When done, destroy it with @ref mongocrypt_ctx_destroy.
+ *
+ * @param[in] crypt The @ref mongocrypt_t object.
+ * @returns A new context.
+ */
 MONGOCRYPT_EXPORT
 mongocrypt_ctx_t *
 mongocrypt_ctx_new (mongocrypt_t *crypt);
 
 
+/**
+ * Get the status associated with a @ref mongocrypt_ctx_t object.
+ *
+ * @param[in] ctx The @ref mongocrypt_ctx_t object.
+ * @param[out] status Receives the status.
+ *
+* @returns A boolean indicating success.
+ */
 MONGOCRYPT_EXPORT
 bool
 mongocrypt_ctx_status (mongocrypt_ctx_t *ctx, mongocrypt_status_t *out);
 
 
 /**
- * Initialize a handle for encryption.
+ * Initialize a context for encryption.
+ *
+ * @param[in] ctx The @ref mongocrypt_ctx_t object.
+ * @param[in] ns The namespace of the collection the driver is operating on.
+ * @param[in] ns_len The strlen of @p ns.
+ * @returns A boolean indicating success.
  */
 MONGOCRYPT_EXPORT
 bool
@@ -257,7 +378,11 @@ mongocrypt_ctx_encrypt_init (mongocrypt_ctx_t *ctx,
 
 
 /**
- * Initialize a handle for decryption. @doc is a document to be decrypted.
+ * Initialize a context for decryption.
+ *
+ * @param[in] ctx The @ref mongocrypt_ctx_t object.
+ * @param[in] doc The document to be decrypted.
+ * @returns A boolean indicating success.
  */
 MONGOCRYPT_EXPORT
 bool
@@ -276,6 +401,12 @@ typedef enum {
 } mongocrypt_ctx_state_t;
 
 
+/**
+ * Get the current state of a context.
+ *
+ * @param[in] ctx The @ref mongocrypt_ctx_t object.
+ * @returns A @ref mongocrypt_ctx_state_t.
+ */
 MONGOCRYPT_EXPORT
 mongocrypt_ctx_state_t
 mongocrypt_ctx_state (mongocrypt_ctx_t *ctx);
@@ -285,10 +416,14 @@ mongocrypt_ctx_state (mongocrypt_ctx_t *ctx);
  * Get BSON necessary to run the mongo operation when mongocrypt_ctx_t
  * is in MONGOCRYPT_CTX_NEED_MONGO_* states.
  *
- * op_bson is a BSON document to be used for the operation.
+ * @p op_bson is a BSON document to be used for the operation.
  * - For MONGOCRYPT_CTX_NEED_MONGO_COLLINFO it is a listCollections filter.
  * - For MONGOCRYPT_CTX_NEED_MONGO_KEYS it is a find filter.
  * - For MONGOCRYPT_CTX_NEED_MONGO_MARKINGS it is a JSON schema to append.
+ *
+ * @param[in] ctx The @ref mongocrypt_ctx_t object.
+ * @param[out] op_bson A BSON document for the MongoDB operation.
+ * @returns A boolean indicating success.
  */
 MONGOCRYPT_EXPORT
 bool
@@ -305,33 +440,45 @@ mongocrypt_ctx_mongo_op (mongocrypt_ctx_t *ctx, mongocrypt_binary_t *op_bson);
  * cursor.
  * - For MONGOCRYPT_CTX_NEED_MONGO_KEYS it is a doc from a find cursor.
  * - For MONGOCRYPT_CTX_NEED_MONGO_MARKINGS it is a reply from mongocryptd.
+ *
+ * @param[in] ctx The @ref mongocrypt_ctx_t object.
+ * @param[in] reply A BSON document for the MongoDB operation.
+ * @returns A boolean indicating success.
  */
 MONGOCRYPT_EXPORT
 bool
 mongocrypt_ctx_mongo_feed (mongocrypt_ctx_t *ctx, mongocrypt_binary_t *reply);
 
 
+/**
+ * Call when done feeding the reply (or replies) back to the context.
+ *
+ * @param[in] ctx The @ref mongocrypt_ctx_t object.
+ * @returns A boolean indicating success.
+ */
 MONGOCRYPT_EXPORT
 bool
 mongocrypt_ctx_mongo_done (mongocrypt_ctx_t *ctx);
 
 
+/**
+ * Manages a single KMS HTTP request/response.
+ */
 typedef struct _mongocrypt_kms_ctx_t mongocrypt_kms_ctx_t;
 
 
 /**
  * Get the next KMS handle.
- * 
+ *
  * Multiple KMS handles may be retrieved at once. Drivers may do this to fan
  * out multiple concurrent KMS HTTP requests. Feeding multiple KMS requests
  * is thread-safe.
- * 
+ *
  * Is KMS handles are being handled synchronously, the driver can reuse the same
- * TLS socket to send HTTP requests and receive responses. 
- * 
+ * TLS socket to send HTTP requests and receive responses.
+ *
  * @param[in] ctx A @ref mongocrypt_ctx_t.
  * @param[out] msg The HTTP request to send to KMS.
- * @pre @p ctx is in the state MONGOCRYPT_CTX_NEED_KMS.
  * @returns a new @ref mongocrypt_kms_ctx_t or NULL.
  */
 MONGOCRYPT_EXPORT
@@ -339,26 +486,53 @@ mongocrypt_kms_ctx_t *
 mongocrypt_ctx_next_kms_ctx (mongocrypt_ctx_t *ctx, mongocrypt_binary_t *msg);
 
 
+/**
+ * Indicates how many bytes to feed into @ref mongocrypt_kms_ctx_feed.
+ *
+ * @param[in] kms The @ref mongocrypt_kms_ctx_t.
+ * @returns The number of requested bytes.
+ */
 MONGOCRYPT_EXPORT
 uint32_t
 mongocrypt_kms_ctx_bytes_needed (mongocrypt_kms_ctx_t *kms);
 
 
-/* Feeding more bytes than what has been returned in @ref mongocrypt_kms_ctx_bytes_needed is an error.
- * On error, a KMS error status is set. For drivers fanning out, wait until after calling @ref mongocrypt_ctx_kms_done to throw.
- * That will set an error status on mongocrypt_ctx with a combined status of all kms contexts */
+/**
+ * Feed bytes from the HTTP response.
+ *
+ * Feeding more bytes than what has been returned in @ref
+ * mongocrypt_kms_ctx_bytes_needed is an error.
+ *
+ * @param[in] kms The @ref mongocrypt_kms_ctx_t.
+ * @param[in] bytes The bytes to feed.
+ * @returns A boolean indicating success.
+ */
 MONGOCRYPT_EXPORT
-int
+bool
 mongocrypt_kms_ctx_feed (mongocrypt_kms_ctx_t *kms, mongocrypt_binary_t *bytes);
 
 
+/**
+ * Get the status associated with a @ref mongocrypt_kms_ctx_t object.
+ *
+ * @param[in] kms The @ref mongocrypt_kms_ctx_t object.
+ * @param[out] status Receives the status.
+ *
+ * @returns A boolean indicating success.
+ */
 MONGOCRYPT_EXPORT
-int
+bool
 mongocrypt_kms_ctx_status (mongocrypt_kms_ctx_t *kms,
                            mongocrypt_status_t *status);
 
 
-/* Call this when you're done with all kms requests. */
+/**
+ * Call when done handling all KMS contexts.
+ *
+ * @param[in] ctx The @ref mongocrypt_ctx_t object.
+ *
+ * @returns A boolean indicating success.
+ */
 MONGOCRYPT_EXPORT
 bool
 mongocrypt_ctx_kms_done (mongocrypt_ctx_t *ctx);
@@ -366,15 +540,11 @@ mongocrypt_ctx_kms_done (mongocrypt_ctx_t *ctx);
 
 /**
  * Perform the final encryption or decryption.
- * 
+ *
  * @param[in] ctx A @ref mongocrypt_ctx_t.
  * @param[out] out The final BSON to send to the server.
- * 
- * @pre @p ctx is in the state MONGOCRYPT_CTX_READY.
- * @post ctx transitions to MONGOCRYPT_CTX_DONE or MONGOCRYPT_CTX_ERROR.
- * 
- * @returns a bool indicating success. On failure, a status is set and
- * the state MONGOCRYPT_CTX_ERROR.
+ *
+ * @returns a bool indicating success.
  */
 MONGOCRYPT_EXPORT
 bool
@@ -383,7 +553,7 @@ mongocrypt_ctx_finalize (mongocrypt_ctx_t *ctx, mongocrypt_binary_t *out);
 
 /**
  * Destroy and free all memory associated with a @ref mongocrypt_ctx_t.
- * 
+ *
  * @param[in] ctx A @ref mongocrypt_ctx_t.
  */
 MONGOCRYPT_EXPORT

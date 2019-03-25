@@ -95,7 +95,7 @@ _mongocrypt_do_init (void)
 
 
 mongocrypt_t *
-mongocrypt_new (const mongocrypt_opts_t *opts)
+mongocrypt_new (mongocrypt_opts_t *opts)
 {
    mongocrypt_t *crypt;
 

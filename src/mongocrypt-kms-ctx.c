@@ -14,14 +14,14 @@
  * limitations under the License.
  */
 
-#include "mongocrypt.h"
+
 #include "mongocrypt-private.h"
 #include "mongocrypt-binary-private.h"
 #include "mongocrypt-buffer-private.h"
 #include "mongocrypt-kms-ctx-private.h"
 #include "mongocrypt-status-private.h"
-
 #include <kms_message/kms_b64.h>
+#include "mongocrypt.h"
 
 /* Before we've read the Content-Length header in an HTTP response,
  * we don't know how many bytes we'll need. So return this value
@@ -80,7 +80,7 @@ mongocrypt_kms_ctx_bytes_needed (mongocrypt_kms_ctx_t *kms)
 }
 
 
-int
+bool
 mongocrypt_kms_ctx_feed (mongocrypt_kms_ctx_t *kms, mongocrypt_binary_t *bytes)
 {
    mongocrypt_status_t *status;
@@ -174,8 +174,7 @@ _mongocrypt_kms_ctx_result (mongocrypt_kms_ctx_t *kms, _mongocrypt_buffer_t* out
 }
 
 
-/* TODO: bool doesn't work... */
-int
+bool
 mongocrypt_kms_ctx_status (mongocrypt_kms_ctx_t *kms,
                            mongocrypt_status_t *status)
 {
